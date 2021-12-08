@@ -1,12 +1,11 @@
-import http from "http";
+import express from "express";
+import { simulatorRouter } from "./routes/simulator";
+import { startRouter } from "./routes/start";
 
-http.createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/") {
-        res.end("Hello there!");
-    } else if (req.method === "POST" && req.url === "/echo") {
-        req.pipe(res);
-    } else {
-        res.statusCode = 404;
-        res.end();
-    }
-}).listen(8080);
+var app = express();
+
+app.use("/", startRouter);
+app.use("/simulator", simulatorRouter);
+
+app.listen(8080);
+console.log("Webserver started at http://localhost:8080");
