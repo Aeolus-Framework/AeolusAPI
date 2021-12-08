@@ -1,4 +1,5 @@
 # AeolusAPI
+![Build Status](https://jenkins.aeolus.se/buildStatus/icon?job=aeolus-api)
 
 An RESTful API modeling electricity price, production, and consumption based on wind speed
 
