@@ -27,6 +27,8 @@ interface Household {
     battery: {
         maxCapacity: number;
     };
+    sellRatioOverProduction: number;
+    buyRatioUnderProduction: number;
     windTurbines: {
         active: number;
         maximumProduction: number;
@@ -59,6 +61,8 @@ var householdSchema = new Schema<Household>(
         battery: {
             maxCapacity: Number
         },
+        sellRatioOverProduction: Number,
+        buyRatioUnderProduction: Number,
         windTurbines: {
             active: Number,
             maximumProduction: Number,
