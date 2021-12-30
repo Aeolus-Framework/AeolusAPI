@@ -60,13 +60,13 @@ npm run dev
 Build docker image.
 
 ```sh
-docker build . -t aeolus/simulator
+docker build . -t aeolus/api
 ```
 
 Run a docker container with the newly built image and link the external port 5700 to container port 8080.
 
 ```sh
-docker run -d -p 5700:8080 aeolus/simulator
+docker run -d -p 5700:8080 aeolus/api
 ```
 
 To add enviroment variables, add `--env VARIABLE=VALUE` for each enviroment variable to use.
