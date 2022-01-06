@@ -4,15 +4,57 @@ import { escapeHtml } from "../util/html/escape";
 
 export const simulatorRouter = express.Router();
 
-simulatorRouter.get("/", (req, res) => {
-    res.send("You have navigated to the simulator API");
+function respondWithReqUrl(req: any): string {
+    return `You have navigated to <a href="${req.originalUrl}">${req.originalUrl}</a>`;
+}
+
+simulatorRouter.get("/grid/blackouts", (req, res) => {
+    /* 	
+        #swagger.tags = ['User']
+        #swagger.description = 'Endpoint to list all blackouts' 
+        #swagger.responses[200] = {
+            description: "Ok response",
+            schema: {
+                foo: "bar"
+            }
+        } 
+    */
+
+    res.send(respondWithReqUrl(req));
 });
 
-simulatorRouter.get("/:id", (req, res) => {
-    res.send(`You have requested information about household ${req.params.id}`);
+simulatorRouter.get("/grid/summary", (req, res) => {
+    /* 	#swagger.tags = ['Simulator']
+        #swagger.description = 'Endpoint to list all blackouts' */
+
+    res.send(respondWithReqUrl(req));
+});
+
+simulatorRouter.get("/household/u/:id", (req, res) => {
+    /* 	#swagger.tags = ['Simulator']
+        #swagger.description = 'Endpoint to list all blackouts' */
+    res.send(respondWithReqUrl(req));
+});
+
+simulatorRouter.get("/household/:id", (req, res) => {
+    /* 	#swagger.tags = ['Simulator']
+        #swagger.description = 'Endpoint to fetch data about a household' 
+        #swagger.responses[200] = {
+            schema: { "$ref": "#/definitions/Household" },
+            description: "Household was found"
+        }
+        */
+    res.status(200).json({
+        data: {},
+        message: "OK"
+    });
+    //res.send(respondWithReqUrl(req));
 });
 
 simulatorRouter.get("/:id/battery/:from/:to?", (req, res) => {
+    /* 	#swagger.tags = ['Simulator']
+        #swagger.description = 'Endpoint to list all blackouts' */
+
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
@@ -27,6 +69,9 @@ simulatorRouter.get("/:id/battery/:from/:to?", (req, res) => {
 });
 
 simulatorRouter.get("/:id/production/:from/:to?", (req, res) => {
+    /* 	#swagger.tags = ['Simulator']
+        #swagger.description = 'Endpoint to list all blackouts' */
+
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
@@ -41,6 +86,8 @@ simulatorRouter.get("/:id/production/:from/:to?", (req, res) => {
 });
 
 simulatorRouter.get("/:id/consumption/:from/:to?", (req, res) => {
+    /* 	#swagger.tags = ['Simulator']
+        #swagger.description = 'Endpoint to list all blackouts' */
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {

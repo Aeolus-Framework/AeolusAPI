@@ -52,7 +52,8 @@ npm run dev
 | ------------------------------- | ----------------------------------------------------------- |
 | `MONGODB_HOST`                  | Host with a mongo instance running, may include port number |
 | `MONGODB_DATABASE`              | Database to use                                             |
-| `MONGODB_USERNAME` _(optional)_ | Username to access database                                 |
+| `SWAGGER_FILE`                  | File to open-api swagger doc                                |
+| `MONGODB_PASSWORD` _(optional)_ | Password to access database                                 |
 | `MONGODB_PASSWORD` _(optional)_ | Password to access database                                 |
 
 # Build and run with `docker`
