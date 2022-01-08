@@ -8,53 +8,173 @@ function respondWithReqUrl(req: any): string {
     return `You have navigated to <a href="${req.originalUrl}">${req.originalUrl}</a>`;
 }
 
-simulatorRouter.get("/grid/blackouts", (req, res) => {
-    /* 	
-        #swagger.tags = ['User']
-        #swagger.description = 'Endpoint to list all blackouts' 
-        #swagger.responses[200] = {
-            description: "Ok response",
-            schema: {
-                foo: "bar"
-            }
-        } 
-    */
+/**
+ * @openapi
+ * components:
+ *  schemas:
+ *      Household:
+ *          type: object
+ *          properties:
+ *              id:
+ *                  type: string
+ *              owner:
+ *                  type: string
+ *              dashboard:
+ *                  type: array
+ *                  items:
+ *                      type: number
+ *              thumbnail:
+ *                  type: string
+ *              area:
+ *                  type: number
+ *                  minimum: 0
+ *              location:
+ *                  type: object
+ *                  properties:
+ *                      latitude:
+ *                          type: number
+ *                      longitude:
+ *                          type: number
+ *              blackout:
+ *                  type: boolean
+ *              baseConsumption:
+ *                  type: number
+ *                  minimum: 0
+ *              heatingEfficiency:
+ *                  type: number
+ *                  maximum: 1
+ *                  minimum: 0
+ *              battery:
+ *                  type: object
+ *                  properties:
+ *                      maxCapacity:
+ *                          type: number
+ *                          minimum: 0
+ *              sellRatioOverProduction:
+ *                  type: number
+ *              buyRatioUnderProduction:
+ *                  type: number
+ *              windTurbines:
+ *                  type: object
+ *                  properties:
+ *                      active:
+ *                          type: number
+ *                          minimum: 0
+ *                      maximumProduction:
+ *                          type: number
+ *                      cutinWindspeed:
+ *                          type: number
+ *                          minimum: 0
+ *                      cutoutWindspeed:
+ *                          type: number
+ *              consumptionSpike:
+ *                  type: object
+ *                  properties:
+ *                      AmplitudeMean:
+ *                          type: number
+ *                      AmplitudeVariance:
+ *                          type: number
+ *                      DurationMean:
+ *                          type: number
+ *                      DurationVariance:
+ *                          type: number
+ *
+ *      Battery:
+ *          type: object
+ *          properties:
+ *              timestamp:
+ *                  type: string
+ *                  format: date-time
+ *              household:
+ *                  type: string
+ *              energy:
+ *                  type: number
+ *                  minimum: 0
+ *
+ *
+ *      Consumption:
+ *          type: object
+ *          properties:
+ *              timestamp:
+ *                  type: string
+ *                  format: date-time
+ *              household:
+ *                  type: string
+ *              consumption:
+ *                  type: number
+ *                  minimum: 0
+ *
+ *      Production:
+ *          type: object
+ *          properties:
+ *              timestamp:
+ *                  type: string
+ *                  format: date-time
+ *              household:
+ *                  type: string
+ *              production:
+ *                  type: number
+ *                  minimum: 0
+ *
+ *      Transmission:
+ *          type: object
+ *          properties:
+ *              timestamp:
+ *                  type: string
+ *                  format: date-time
+ *              household:
+ *                  type: string
+ *              amount:
+ *                  type: number
+ *                  minimum: 0
+ *
+ *      Windspeed:
+ *          type: object
+ *          properties:
+ *              timestamp:
+ *                  type: string
+ *                  format: date-time
+ *              windspeed:
+ *                  type: number
+ *                  minimum: 0
+ *
+ */
 
+/**
+ * @openapi
+ * /simulator/grid/blackouts:
+ *  get:
+ *      tags:
+ *          - Simulator
+ *      description: Get all current blackout in grid.
+ *      responses:
+ *          200:
+ *              description: Return something
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          $ref: '#/components/schemas/Household'
+ */
+simulatorRouter.get("/grid/blackouts", (req, res) => {
     res.send(respondWithReqUrl(req));
 });
 
 simulatorRouter.get("/grid/summary", (req, res) => {
-    /* 	#swagger.tags = ['Simulator']
-        #swagger.description = 'Endpoint to list all blackouts' */
-
     res.send(respondWithReqUrl(req));
 });
 
 simulatorRouter.get("/household/u/:id", (req, res) => {
-    /* 	#swagger.tags = ['Simulator']
-        #swagger.description = 'Endpoint to list all blackouts' */
     res.send(respondWithReqUrl(req));
 });
 
 simulatorRouter.get("/household/:id", (req, res) => {
-    /* 	#swagger.tags = ['Simulator']
-        #swagger.description = 'Endpoint to fetch data about a household' 
-        #swagger.responses[200] = {
-            schema: { "$ref": "#/definitions/Household" },
-            description: "Household was found"
-        }
-        */
     res.status(200).json({
         data: {},
         message: "OK"
     });
-    //res.send(respondWithReqUrl(req));
 });
 
 simulatorRouter.get("/:id/battery/:from/:to?", (req, res) => {
-    /* 	#swagger.tags = ['Simulator']
-        #swagger.description = 'Endpoint to list all blackouts' */
-
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
@@ -69,9 +189,6 @@ simulatorRouter.get("/:id/battery/:from/:to?", (req, res) => {
 });
 
 simulatorRouter.get("/:id/production/:from/:to?", (req, res) => {
-    /* 	#swagger.tags = ['Simulator']
-        #swagger.description = 'Endpoint to list all blackouts' */
-
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
@@ -86,8 +203,6 @@ simulatorRouter.get("/:id/production/:from/:to?", (req, res) => {
 });
 
 simulatorRouter.get("/:id/consumption/:from/:to?", (req, res) => {
-    /* 	#swagger.tags = ['Simulator']
-        #swagger.description = 'Endpoint to list all blackouts' */
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
