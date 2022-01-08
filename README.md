@@ -46,6 +46,14 @@ To rebuild and start the applicaiton when a file in the project is saved, use:
 npm run dev
 ```
 
+## Generate API documentation
+
+To build the project and then generate openapi (swagger) documentation, use:
+
+```sh
+npm run docgen
+```
+
 # Enviroment variables avaliable
 
 | name                            | description                                                 |
