@@ -9,7 +9,7 @@ RUN npm install
 
 # Build app from source
 COPY . .
-RUN npm run build
+RUN npm run build && npm run docgen
 
 #########################
 # STAGE Run
