@@ -1,20 +1,7 @@
 import { Schema, model } from "mongoose";
 
-export enum DashboardCardType {
-    Consumption,
-    Production,
-    Buffer,
-    ProductionEfficiency,
-    WindSpeed,
-    Temperature,
-    PricePerkWh
-}
-
 export class Household {
     owner: string;
-    dashboard: {
-        Cards: DashboardCardType[];
-    };
     thumbnail: string;
     area: number;
     location: {
@@ -50,9 +37,6 @@ export class Household {
 var householdSchema = new Schema<Household>(
     {
         owner: String,
-        dashboard: {
-            Cards: [Number]
-        },
         thumbnail: String,
         area: Number,
         location: {

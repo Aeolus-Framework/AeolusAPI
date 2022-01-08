@@ -19,10 +19,6 @@ function respondWithReqUrl(req: any): string {
  *                  type: string
  *              owner:
  *                  type: string
- *              dashboard:
- *                  type: array
- *                  items:
- *                      type: number
  *              thumbnail:
  *                  type: string
  *              area:
