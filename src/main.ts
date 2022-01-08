@@ -3,17 +3,17 @@ if (process.env.NODE_ENV === "development") {
 }
 
 import express from "express";
-import { dashboardRouter } from "./routes/dashboard";
 import { simulatorRouter } from "./routes/simulator";
-import { startRouter } from "./routes/start";
+import { socialRouter } from "./routes/social";
 import swaggerUi from "swagger-ui-express";
 
 var app = express();
 const swaggerFile = process.env.SWAGGER_FILE || "./openapi_doc.json";
 
-app.use("/", startRouter);
+app.get("/", (req, res) => res.redirect(302, "./docs/"));
+
 app.use("/simulator", simulatorRouter);
-app.use("/dashboard", dashboardRouter);
+app.use("/social", socialRouter);
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(require(swaggerFile)));
 
 app.listen(8080);
