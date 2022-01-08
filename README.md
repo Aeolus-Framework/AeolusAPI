@@ -1,4 +1,5 @@
 # AeolusAPI
+
 ![Build Status](https://jenkins.aeolus.se/buildStatus/icon?job=aeolus-api)
 
 An RESTful API modeling electricity price, production, and consumption based on wind speed
@@ -45,22 +46,36 @@ To rebuild and start the applicaiton when a file in the project is saved, use:
 npm run dev
 ```
 
+## Generate API documentation
+
+To build the project and then generate openapi (swagger) documentation, use:
+
+```sh
+npm run docgen
+```
+
+# Enviroment variables avaliable
+
+| name                            | description                                                 |
+| ------------------------------- | ----------------------------------------------------------- |
+| `MONGODB_HOST`                  | Host with a mongo instance running, may include port number |
+| `MONGODB_DATABASE`              | Database to use                                             |
+| `SWAGGER_FILE`                  | File to open-api swagger doc                                |
+| `MONGODB_PASSWORD` _(optional)_ | Password to access database                                 |
+| `MONGODB_PASSWORD` _(optional)_ | Password to access database                                 |
+
 # Build and run with `docker`
 
 Build docker image.
 
 ```sh
-docker build . -t aeolus/simulator
+docker build . -t aeolus/api
 ```
 
-Run a docker container with the newly built image and link the external port 49160 to container port 8080.
+Run a docker container with the newly built image and link the external port 5700 to container port 8080.
 
 ```sh
-docker run -d aeolus/simulator
+docker run -d -p 5700:8080 aeolus/api
 ```
 
-To automatically start the container when docker is started unless the container was manually stopped add `--restart unless-stopped`.
-
-```sh
-docker run -d --restart unless-stopped aeolus/simulator
-```
+To add enviroment variables, add `--env VARIABLE=VALUE` for each enviroment variable to use.
