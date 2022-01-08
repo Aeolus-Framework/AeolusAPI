@@ -245,13 +245,12 @@ simulatorRouter.get("/households/u/:id", (req, res) => {
  *      tags:
  *          - Simulator
  *      description: Create a new household with the requester as owner
- *      parameters:
- *          - name: household
- *            in: query
- *            description: Information about household to create
- *            required: true
- *            schema:
- *                $ref: "#/components/schemas/Household"
+ *      requestBody:
+ *          description: Information about household to create
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      $ref: "#/components/schemas/Household"
  *      responses:
  *          201:
  *              description: Household was successfully created.
@@ -321,12 +320,12 @@ simulatorRouter.get("/household/:id", (req, res) => {
  *            required: true
  *            schema:
  *                type: string
- *          - name: household
- *            in: query
- *            description: Information about household to update
- *            required: true
- *            schema:
- *                $ref: "#/components/schemas/Household"
+ *      requestBody:
+ *          description: Information about household to update
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      $ref: "#/components/schemas/Household"
  *      responses:
  *          200:
  *              description: Household was successfully created.
@@ -844,16 +843,15 @@ simulatorRouter.get("/powerplant/status", (req, res) => {
  *      tags:
  *          - Simulator
  *      description: Set status of powerplant.
- *      parameters:
- *          - name: status
- *            in: query
- *            description: status to set
- *            required: true
- *            schema:
- *                type: object
- *                properties:
- *                    enabled:
- *                        type: boolean
+ *      requestBody:
+ *          description: status to set
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      type: object
+ *                      properties:
+ *                          enabled:
+ *                              type: boolean
  *      responses:
  *          200:
  *              description: Ok
