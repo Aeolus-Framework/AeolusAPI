@@ -3,6 +3,7 @@ if (process.env.NODE_ENV === "development") {
 }
 
 import express from "express";
+import { dashboardRouter } from "./routes/dashboard";
 import { simulatorRouter } from "./routes/simulator";
 import { socialRouter } from "./routes/social";
 import swaggerUi from "swagger-ui-express";
