@@ -9,7 +9,7 @@ import { startRouter } from "./routes/start";
 import swaggerUi from "swagger-ui-express";
 
 var app = express();
-const swaggerFile = process.env.SWAGGER_FILE;
+const swaggerFile = process.env.SWAGGER_FILE || "./openapi_doc.json";
 
 app.use("/", startRouter);
 app.use("/simulator", simulatorRouter);
