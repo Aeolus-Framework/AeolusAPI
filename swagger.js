@@ -15,28 +15,28 @@ const options = {
         info: {
             version: "1.0.0",
             title: "Aeolus API"
-        }
+        },
+        servers: [
+            {
+                url: NODE_ENV_IS_DEV ? "http://localhost:8080/" : "https://aeolus.se/api"
+            }
+        ],
+        tags: [
+            {
+                name: "Simulator",
+                description: "Simulator related stuff"
+            },
+            {
+                name: "Alarms",
+                description: "Subscribe and create alarms"
+            },
+            {
+                name: "Social",
+                description: "Interact with other users and other user related things"
+            }
+        ]
     },
-    host: NODE_ENV_IS_DEV ? "localhost:8080" : "aeolus.se",
-    basePath: NODE_ENV_IS_DEV ? "" : "/api",
-    schemes: ["http", "https"],
-    consumes: ["application/json"],
-    produces: ["application/json"],
-    tags: [
-        {
-            name: "Simulation",
-            description: "Simulator related stuff"
-        },
-        {
-            name: "Alarms",
-            description: "Subscribe and create alarms"
-        },
-        {
-            name: "Social",
-            description: "Interact with other users and other user related things"
-        }
-    ],
-    apis: ["./dist/routes/*.js"] // files containing annotations as above
+    apis: ["./dist/routes/*.js"]
 };
 
 const openapiSpecification = swaggerJsdoc(options);
