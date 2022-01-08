@@ -1,11 +1,11 @@
-import { Schema, model } from "mongoose";
+var mongoose = require("mongoose");
 
 interface Windspeed {
     timestamp: Date;
     windspeed: number;
 }
 
-var windspeedSchema = new Schema<Windspeed>(
+var windspeedSchema = new mongoose.Schema(
     {
         timestamp: Date,
         windspeed: Number
@@ -13,4 +13,4 @@ var windspeedSchema = new Schema<Windspeed>(
     { versionKey: false }
 );
 
-export const windspeed = model<Windspeed>("windspeed", windspeedSchema);
+export const windspeed = mongoose.model("windspeed", windspeedSchema);

@@ -1,4 +1,4 @@
-import { Schema, model } from "mongoose";
+var mongoose = require("mongoose");
 
 interface Chat {
     owner: string;
@@ -12,7 +12,7 @@ interface Chat {
     }[];
 }
 
-var chatSchema = new Schema<Chat>(
+var chatSchema = new mongoose.Schema(
     {
         owner: Boolean,
         closed: Boolean,
@@ -29,4 +29,4 @@ var chatSchema = new Schema<Chat>(
     { versionKey: false }
 );
 
-export const chat = model<Chat>("batteryHistory", chatSchema);
+export const chat = mongoose.model("batteryHistory", chatSchema);

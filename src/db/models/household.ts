@@ -1,4 +1,4 @@
-import { Schema, model } from "mongoose";
+var mongoose = require("mongoose");
 
 export class Household {
     owner: string;
@@ -34,7 +34,7 @@ export class Household {
     }
 }
 
-var householdSchema = new Schema<Household>(
+var householdSchema = new mongoose.Schema(
     {
         owner: String,
         thumbnail: String,
@@ -67,4 +67,4 @@ var householdSchema = new Schema<Household>(
     { versionKey: false }
 );
 
-export const household = model<Household>("household", householdSchema);
+export const household = mongoose.model("household", householdSchema);

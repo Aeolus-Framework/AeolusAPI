@@ -1,4 +1,4 @@
-import { Schema, model } from "mongoose";
+var mongoose = require("mongoose");
 
 interface Production {
     timestamp: Date;
@@ -6,7 +6,7 @@ interface Production {
     production: number;
 }
 
-var productionSchema = new Schema<Production>(
+var productionSchema = new mongoose.Schema(
     {
         timestamp: Date,
         household: String,
@@ -15,4 +15,4 @@ var productionSchema = new Schema<Production>(
     { versionKey: false }
 );
 
-export const production = model<Production>("production", productionSchema);
+export const production = mongoose.model("production", productionSchema);
