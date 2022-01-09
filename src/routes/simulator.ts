@@ -1,6 +1,11 @@
 import express from "express";
-import { isValidDate } from "../util/date/validator";
+import { isValidId } from "../util/validators/mongodbValidator";
+import { isValidDate } from "../util/validators/dateValidator";
 import { escapeHtml } from "../util/html/escape";
+
+import { Household, household as HouseholdCollection } from "../db/models/household";
+import { userprofile, userprofile as UserprofileCollection } from "../db/models/userprofile";
+import { objectIsEmpty } from "../util/validators/jsonValidator";
 
 export const simulatorRouter = express.Router();
 
@@ -14,8 +19,11 @@ function respondWithReqUrl(req: any): string {
  *  schemas:
  *      Household:
  *          type: object
+ *          required: ["owner", "name", "area", "location", "baseConsumption", "battery", "sellRatioOverProduction", "buyRatioUnderProduction", "windTurbines", "consumptionSpike"]
  *          properties:
  *              owner:
+ *                  type: string
+ *              name:
  *                  type: string
  *              thumbnail:
  *                  type: string
@@ -24,13 +32,19 @@ function respondWithReqUrl(req: any): string {
  *                  minimum: 0
  *              location:
  *                  type: object
+ *                  required: ["latitude", "longitude"]
  *                  properties:
  *                      latitude:
  *                          type: number
+ *                          minimum: -90
+ *                          maximum: 90
  *                      longitude:
  *                          type: number
+ *                          minimum: -180
+ *                          maximum: 180
  *              blackout:
  *                  type: boolean
+ *                  default: false
  *              baseConsumption:
  *                  type: number
  *                  minimum: 0
@@ -38,8 +52,10 @@ function respondWithReqUrl(req: any): string {
  *                  type: number
  *                  maximum: 1
  *                  minimum: 0
+ *                  default: 0
  *              battery:
  *                  type: object
+ *                  required: ["maxCapacity"]
  *                  properties:
  *                      maxCapacity:
  *                          type: number
@@ -50,6 +66,7 @@ function respondWithReqUrl(req: any): string {
  *                  type: number
  *              windTurbines:
  *                  type: object
+ *                  required: ["active", "maximumProduction", "cutinWindspeed", "cutoutWindspeed"]
  *                  properties:
  *                      active:
  *                          type: number
@@ -61,8 +78,10 @@ function respondWithReqUrl(req: any): string {
  *                          minimum: 0
  *                      cutoutWindspeed:
  *                          type: number
+ *                          minimum: 0
  *              consumptionSpike:
  *                  type: object
+ *                  required: ["AmplitudeMean", "AmplitudeVariance" ,"DurationMean", "DurationVariance"]
  *                  properties:
  *                      AmplitudeMean:
  *                          type: number
@@ -172,10 +191,30 @@ function respondWithReqUrl(req: any): string {
  *                      schema:
  *                          type: array
  *                          items:
- *                              type: string
+ *                              type: object
+ *                              properties:
+ *                                  _id:
+ *                                      type: string
+ *                                  owner:
+ *                                      type: string
+ *                                  name:
+ *                                      type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/grid/blackouts", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.get("/grid/blackouts", async (req, res) => {
+    const query = { blackout: true };
+    const fields = "_id name owner";
+
+    let blackouts;
+    try {
+        blackouts = await HouseholdCollection.find(query, fields).exec();
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send();
+    }
+
+    return res.status(200).send(blackouts);
 });
 
 /**
@@ -188,13 +227,9 @@ simulatorRouter.get("/grid/blackouts", (req, res) => {
  *      responses:
  *          501:
  *              description: Not implemented
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  */
 simulatorRouter.get("/grid/summary", (req, res) => {
-    res.status(200).send("501, not implemented");
+    res.status(501).send();
 });
 
 /**
@@ -213,29 +248,41 @@ simulatorRouter.get("/grid/summary", (req, res) => {
  *                type: string
  *      responses:
  *          200:
- *              description: Ok
+ *              description: A list of all household that belongs to the specified user. <br/><br/> If the user does not own any households, the response will be an empty array.
  *              content:
  *                  application/json:
  *                      schema:
  *                          type: array
  *                          items:
- *                              $ref: "#/components/schemas/Household"
+ *                              type: object
+ *                              allOf:
+ *                                  - type: object
+ *                                    required: ["_id"]
+ *                                    properties:
+ *                                        _id:
+ *                                            type: string
+ *                                  - $ref: "#/components/schemas/Household"
+ *          400:
+ *              description: Invalid user id
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The user could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/households/u/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.get("/households/u/:id", async (req, res) => {
+    const userid = req.params.id;
+    if (isValidId(userid) === false) return res.status(400).send();
+
+    let households;
+    try {
+        households = await HouseholdCollection.find({ owner: userid }).exec();
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send();
+    }
+
+    return res.status(200).send(households);
 });
 
 /**
@@ -255,13 +302,47 @@ simulatorRouter.get("/households/u/:id", (req, res) => {
  *          201:
  *              description: Household was successfully created.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          allOf:
+ *                              - type: object
+ *                                required: ["_id"]
+ *                                properties:
+ *                                    _id:
+ *                                        type: string
+ *                              - $ref: "#/components/schemas/Household"
+ *          400:
+ *              description: Bad request, see response body for more details. <br/><br/>The response contains a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.post("/household/", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.post("/household/", async (req, res) => {
+    const household = req.body;
+    if (objectIsEmpty(household)) return res.status(400).send(["Empty request body, no household found"]);
+
+    if (household.hasOwnProperty("_id")) delete household._id; // Prevent user to set document id
+    const householdDocument = new HouseholdCollection(household);
+
+    try {
+        await householdDocument.save();
+        return res.status(201).send(householdDocument);
+    } catch (error) {
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
 });
 
 /**
@@ -284,26 +365,37 @@ simulatorRouter.post("/household/", (req, res) => {
  *              content:
  *                  application/json:
  *                      schema:
- *                          $ref: "#/components/schemas/Household"
+ *                          allOf:
+ *                              - type: object
+ *                                required: ["_id"]
+ *                                properties:
+ *                                    _id:
+ *                                        type: string
+ *                              - $ref: "#/components/schemas/Household"
+ *          400:
+ *              description: Invalid household id
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
- *              description: The household could not be found or the requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/household/:id", (req, res) => {
-    res.status(200).json({
-        data: {},
-        message: "OK"
-    });
+simulatorRouter.get("/household/:id", async (req, res) => {
+    const householdId = req.params.id;
+    if (isValidId(householdId) === false) return res.status(400).send();
+
+    let household;
+    try {
+        household = await HouseholdCollection.findById(householdId).exec();
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send();
+    }
+
+    if (household === null) return res.status(404).send();
+    else return res.status(200).send(household);
 });
 
 /**
@@ -321,41 +413,62 @@ simulatorRouter.get("/household/:id", (req, res) => {
  *            schema:
  *                type: string
  *      requestBody:
- *          description: Information about household to update
+ *          description: Information about household to update. <br/><br/>Note&#58; Only the properties that should be changed are required, other properties can be skipped.
  *          content:
  *              application/json:
  *                  schema:
  *                      $ref: "#/components/schemas/Household"
  *      responses:
  *          200:
- *              description: Household was successfully created.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *              description: Household was successfully updated.
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for more details. <br/><br/>The response contains a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
  *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  *
  */
-simulatorRouter.put("/household/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.put("/household/:id", async (req, res) => {
+    const changes = req.body;
+    const householdId = req.params.id;
+
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+    if (objectIsEmpty(changes)) return res.status(400).send(["Empty request body, no changes found"]);
+
+    let householdDoc;
+    try {
+        householdDoc = await HouseholdCollection.findById(householdId).exec();
+    } catch (err) {
+        if (err.name === "DocumentNotFoundError") return res.status(404).send();
+        else return res.status(500).send();
+    }
+
+    householdDoc.set(changes);
+
+    try {
+        await householdDoc.save();
+        return res.status(200).send();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
 });
 
 /**
@@ -364,7 +477,7 @@ simulatorRouter.put("/household/:id", (req, res) => {
  *  delete:
  *      tags:
  *          - Simulator
- *      description: Update an existing household
+ *      description: Delete a household
  *      parameters:
  *          - name: id
  *            in: path
@@ -373,35 +486,29 @@ simulatorRouter.put("/household/:id", (req, res) => {
  *            schema:
  *                type: string
  *      responses:
- *          200:
- *              description: Household was successfully created.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          204:
+ *              description: Household was successfully deleted.
  *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *              description: Invalid household id.
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
  *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *
  *
  */
-simulatorRouter.delete("/household/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.delete("/household/:id", async (req, res) => {
+    const householdId = req.params.id;
+
+    if (!isValidId(householdId)) return res.status(400).send();
+
+    try {
+        const household = await HouseholdCollection.findById(householdId).remove().exec();
+        if (household.deletedCount === 0) return res.status(404).send();
+    } catch (err) {
+        return res.status(500).send();
+    }
+    return res.status(204).send();
 });
 
 /**
