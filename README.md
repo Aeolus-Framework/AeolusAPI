@@ -61,7 +61,7 @@ npm run docgen
 | `MONGODB_HOST`                  | Host with a mongo instance running, may include port number |
 | `MONGODB_DATABASE`              | Database to use                                             |
 | `SWAGGER_FILE`                  | File to open-api swagger doc                                |
-| `MONGODB_PASSWORD` _(optional)_ | Password to access database                                 |
+| `MONGODB_USERNAME` _(optional)_ | Username to access database                                 |
 | `MONGODB_PASSWORD` _(optional)_ | Password to access database                                 |
 
 # Build and run with `docker`
