@@ -1,16 +1,27 @@
 import express from "express";
 import { isValidId } from "../util/validators/mongodbValidator";
+import { objectIsEmpty } from "../util/validators/jsonValidator";
 import { isValidDate } from "../util/validators/dateValidator";
 import { escapeHtml } from "../util/html/escape";
 
-import { Household, household as HouseholdCollection } from "../db/models/household";
-import { userprofile, userprofile as UserprofileCollection } from "../db/models/userprofile";
-import { objectIsEmpty } from "../util/validators/jsonValidator";
+import { householdExist, household as HouseholdCollection } from "../db/models/household";
+import { batteryHistory as BatteryHistoryCollection } from "../db/models/battery";
+import { production as ProductionHistoryCollection } from "../db/models/production";
+import { consumption as ConsumptionHistoryCollection } from "../db/models/consumption";
+import { transmission as TransmissionHistoryCollection } from "../db/models/transmission";
+import { windspeed as WindspeedCollection } from "../db/models/windspeed";
 
 export const simulatorRouter = express.Router();
 
 function respondWithReqUrl(req: any): string {
     return `You have navigated to <a href="${req.originalUrl}">${req.originalUrl}</a>`;
+}
+
+enum historyParameter {
+    battery = "battery",
+    production = "production",
+    consumption = "consumption",
+    transmission = "transmission"
 }
 
 /**
@@ -494,6 +505,8 @@ simulatorRouter.put("/household/:id", async (req, res) => {
  *              description: The requester does not have sufficient permissions.
  *          404:
  *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
  *
  *
  */
@@ -513,7 +526,7 @@ simulatorRouter.delete("/household/:id", async (req, res) => {
 
 /**
  * @openapi
- * /simulator/household/{id}/battery/{from}/{to}:
+ * /simulator/household/{id}/history/{collection}/{from}/{to}:
  *  get:
  *      tags:
  *          - Simulator
@@ -521,277 +534,110 @@ simulatorRouter.delete("/household/:id", async (req, res) => {
  *      parameters:
  *          - name: id
  *            in: path
- *            description: id of household
+ *            description: Id of household
  *            required: true
  *            schema:
  *                type: string
+ *          - name: collection
+ *            in: path
+ *            description: Parameter to request historical data of.
+ *            required: true
+ *            schema:
+ *                type: string
+ *                enum:
+ *                    - battery
+ *                    - production
+ *                    - consumption
+ *                    - transmission
  *          - name: from
  *            in: path
- *            description: date or datetime to get battery history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
+ *            description: Date or datetime to get battery history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
  *            required: true
  *            schema:
  *                type: string
  *                format: date-time
  *          - name: to
  *            in: path
- *            description: date or datetime to get battery history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
+ *            description: Date or datetime to get battery history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
  *            required: true
  *            schema:
  *                type: string
  *                format: date-time
  *      responses:
  *          200:
- *              description: Ok
+ *              description: Ok. <br/><br/>The response type will be different based on the specified `collection` parameter. However, only one schema type will be used at once.
  *              content:
  *                  application/json:
  *                      schema:
  *                          type: array
  *                          items:
- *                              $ref: "#/components/schemas/Battery"
+ *                              oneOf:
+ *                                  - $ref: '#/components/schemas/Battery'
+ *                                  - $ref: '#/components/schemas/Production'
+ *                                  - $ref: '#/components/schemas/Consumption'
+ *                                  - $ref: '#/components/schemas/Transmission'
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
  *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/household/:id/battery/:from/:to?", (req, res) => {
+simulatorRouter.get("/household/:id/history/:collection/:from/:to?", async (req, res) => {
+    const householdId = req.params.id;
+    const collection: historyParameter = historyParameter[req.params.collection?.toLowerCase()];
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400);
-        res.send("Invalid date");
-    }
-    res.send(
-        `You have requested battery of household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
-});
 
-/**
- * @openapi
- * /simulator/household/{id}/production/{from}/{to}:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Get production history from a household between two dates
- *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
- *            schema:
- *                type: string
- *          - name: from
- *            in: path
- *            description: date or datetime to get production history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *          - name: to
- *            in: path
- *            description: date or datetime to get production history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *      responses:
- *          200:
- *              description: Ok
- *              content:
- *                  application/json:
- *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Production"
- *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          403:
- *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *
- */
-simulatorRouter.get("/household/:id/production/:from/:to?", (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400);
-        res.send("Invalid date");
-    }
-    res.send(
-        `You have requested production of household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
-});
+    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
 
-/**
- * @openapi
- * /simulator/household/{id}/consumption/{from}/{to}:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Get consumption history from a household between two dates
- *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
- *            schema:
- *                type: string
- *          - name: from
- *            in: path
- *            description: date or datetime to get consumption history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *          - name: to
- *            in: path
- *            description: date or datetime to get consumption history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *      responses:
- *          200:
- *              description: Ok
- *              content:
- *                  application/json:
- *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Consumption"
- *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          403:
- *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *
- */
-simulatorRouter.get("/household/:id/consumption/:from/:to?", (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400);
-        res.send("Invalid date");
-    }
-    res.send(
-        `You have requested information about household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
-});
+    const query = { timestamp: { $gte: dateFrom, $lte: dateTo }, household: householdId };
+    const fields = "-_id";
 
-/**
- * @openapi
- * /simulator/household/{id}/transmission/{from}/{to}:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Get transmission history from a household between two dates
- *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
- *            schema:
- *                type: string
- *          - name: from
- *            in: path
- *            description: date or datetime to get transmission history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *          - name: to
- *            in: path
- *            description: date or datetime to get transmission history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *      responses:
- *          200:
- *              description: Ok
- *              content:
- *                  application/json:
- *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Transmission"
- *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          403:
- *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *
- */
-simulatorRouter.get("/household/:id/transmission/:from/:to?", (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400).send("Invalid date");
+    let historyCollection;
+    switch (collection) {
+        case historyParameter.battery:
+            historyCollection = BatteryHistoryCollection;
+            break;
+        case historyParameter.consumption:
+            historyCollection = ConsumptionHistoryCollection;
+            break;
+        case historyParameter.production:
+            historyCollection = ProductionHistoryCollection;
+            break;
+        case historyParameter.transmission:
+            historyCollection = TransmissionHistoryCollection;
+            break;
+        default:
+            return res.status(400).send(["Invalid history parameter"]);
     }
-    res.send(
-        `You have requested information about household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
+
+    let historicalData: Array<any>;
+    try {
+        historicalData = await historyCollection.find(query).select(fields).exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+
+    if (historicalData.length > 0) return res.status(200).send(historicalData);
+
+    try {
+        const householdExists = await householdExist(householdId);
+        if (householdExists) return res.status(200).send(historicalData);
+        else return res.status(404);
+    } catch (error) {
+        return res.status(500).send();
+    }
 });
 
 /**
@@ -826,22 +672,34 @@ simulatorRouter.get("/household/:id/transmission/:from/:to?", (req, res) => {
  *                          items:
  *                              $ref: "#/components/schemas/Windspeed"
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/windspeed/:from/:to?", (req, res) => {
+simulatorRouter.get("/windspeed/:from/:to?", async (req, res) => {
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400).send("Invalid date");
+
+    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
+
+    const query = { timestamp: { $gte: dateFrom, $lte: dateTo } };
+    const fields = "-_id";
+
+    let historicalData: Array<any>;
+    try {
+        historicalData = await WindspeedCollection.find(query).select(fields).exec();
+    } catch (error) {
+        return res.status(500).send();
     }
-    res.send(
-        `You have requested windspeed history from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
+
+    return res.status(200).send(historicalData);
 });
 
 /**
@@ -860,7 +718,7 @@ simulatorRouter.get("/windspeed/:from/:to?", (req, res) => {
  *                          $ref: "#/components/schemas/MarketPrice"
  */
 simulatorRouter.get("/market/price", (req, res) => {
-    res.send(respondWithReqUrl(req));
+    res.status(501).send();
 });
 
 /**
@@ -887,29 +745,27 @@ simulatorRouter.get("/market/price", (req, res) => {
  *      responses:
  *          200:
  *              description: Ok
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          400:
  *              description: Bad request, see response body for more details.
  *              content:
  *                  text/plain:
  *                      schema:
  *                          type: string
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  */
 simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
-    res.send(
-        `You've blocked household ${escapeHtml(req.params.id)} to sell electricity for ${escapeHtml(
-            req.params.duration
-        )} minute(s).`
-    );
+    res.status(501).send();
 });
 
 /**
@@ -940,7 +796,7 @@ simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
  *                          type: string
  */
 simulatorRouter.get("/powerplant/status", (req, res) => {
-    res.send(respondWithReqUrl(req));
+    res.status(501).send();
 });
 
 /**
@@ -980,5 +836,5 @@ simulatorRouter.get("/powerplant/status", (req, res) => {
  *                          type: string
  */
 simulatorRouter.put("/powerplant/status", (req, res) => {
-    res.send(respondWithReqUrl(req));
+    res.status(501).send();
 });

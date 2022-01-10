@@ -87,3 +87,11 @@ function validatorCutinWindspeed(value: number): boolean {
 function validatorCutoutWindspeed(value: number): boolean {
     return this.windTurbines.cutinWindspeed < value;
 }
+
+/**
+ * Check wether a household exist
+ * @param id Id of household
+ */
+export async function householdExist(id: string): Promise<boolean> {
+    return await household.exist({ _id: id });
+}
