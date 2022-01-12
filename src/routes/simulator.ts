@@ -2,7 +2,6 @@ import express from "express";
 import { isValidId } from "../util/validators/mongodbValidator";
 import { objectIsEmpty } from "../util/validators/jsonValidator";
 import { isValidDate } from "../util/validators/dateValidator";
-import { escapeHtml } from "../util/html/escape";
 
 import { householdExist, household as HouseholdCollection } from "../db/models/household";
 import { batteryHistory as BatteryHistoryCollection } from "../db/models/battery";
@@ -10,12 +9,10 @@ import { production as ProductionHistoryCollection } from "../db/models/producti
 import { consumption as ConsumptionHistoryCollection } from "../db/models/consumption";
 import { transmission as TransmissionHistoryCollection } from "../db/models/transmission";
 import { windspeed as WindspeedCollection } from "../db/models/windspeed";
+import { powerplant as PowerplantCollection } from "../db/models/powerplant";
+import { market as MarketCollection } from "../db/models/market";
 
 export const simulatorRouter = express.Router();
-
-function respondWithReqUrl(req: any): string {
-    return `You have navigated to <a href="${req.originalUrl}">${req.originalUrl}</a>`;
-}
 
 enum historyParameter {
     battery = "battery",
@@ -102,6 +99,16 @@ enum historyParameter {
  *                          type: number
  *                      DurationVariance:
  *                          type: number
+ *              sellLimit:
+ *                  type: object
+ *                  required: ["start", "end"]
+ *                  properties:
+ *                      start:
+ *                          type: string
+ *                          format: date-time
+ *                      end:
+ *                          type: string
+ *                          format: date-time
  *
  *      Battery:
  *          type: object
@@ -161,29 +168,54 @@ enum historyParameter {
  *              windspeed:
  *                  type: number
  *                  minimum: 0
- *      MarketPrice:
+ *      Market:
  *          type: object
  *          properties:
- *              timestamp:
+ *              name:
  *                  type: string
- *                  format: date-time
- *              price:
+ *                  description: Must be unique.
+ *              demand:
  *                  type: number
- *                  example: 2.31
- *              currency:
- *                  type: string
- *                  example: euro
+ *                  description: Market demand in kilowatthours (kWh).
+ *              supply:
+ *                  type: number
+ *                  description: Market supply in kilowatthours (kWh).
+ *              basePrice:
+ *                  type: number
+ *                  description: The price if demand == supply, currency sek
+ *              price:
+ *                  type: object
+ *                  properties:
+ *                      validUntil:
+ *                          type: string
+ *                          format: date-time
+ *                      updatedAt:
+ *                          type: string
+ *                          format: date-time
+ *                      value:
+ *                          type: number
+ *                          example: 2.31
+ *                      currency:
+ *                          type: string
+ *                          example: sek
  *      Powerplant:
  *          type: object
  *          properties:
- *              enabled:
+ *              name:
+ *                  type: string
+ *              active:
  *                  type: boolean
- *              status:
+ *              energySource:
  *                  type: string
  *              production:
- *                  type: number
- *              consumption:
- *                  type: number
+ *                  type: object
+ *                  properties:
+ *                      updatedAt:
+ *                          type: string
+ *                          format: date-time
+ *                      value:
+ *                          type: number
+ *                          description: Electricity production in kilowatthours (kWh).
  *
  */
 
@@ -412,7 +444,7 @@ simulatorRouter.get("/household/:id", async (req, res) => {
 /**
  * @openapi
  * /simulator/household/{id}:
- *  put:
+ *  patch:
  *      tags:
  *          - Simulator
  *      description: Update an existing household
@@ -449,7 +481,7 @@ simulatorRouter.get("/household/:id", async (req, res) => {
  *
  *
  */
-simulatorRouter.put("/household/:id", async (req, res) => {
+simulatorRouter.patch("/household/:id", async (req, res) => {
     const changes = req.body;
     const householdId = req.params.id;
 
@@ -704,53 +736,144 @@ simulatorRouter.get("/windspeed/:from/:to?", async (req, res) => {
 
 /**
  * @openapi
- * /simulator/market/price:
+ * /simulator/market/:
  *  get:
  *      tags:
  *          - Simulator
- *      description: Get latest electricity price in price per kilowatt hour (kWh)
+ *      description: Get information about market.
+ *      parameters:
+ *          - name: name
+ *            in: query
+ *            description: Name of market
+ *            required: false
+ *            schema:
+ *                type: string
+ *                default: default
  *      responses:
  *          200:
  *              description: Ok
  *              content:
  *                  application/json:
  *                      schema:
- *                          $ref: "#/components/schemas/MarketPrice"
+ *                          $ref: "#/components/schemas/Market"
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          404:
+ *              description: A market with the specified name could not be found.
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/market/price", (req, res) => {
-    res.status(501).send();
+simulatorRouter.get("/market/", async (req, res) => {
+    const marketName = req.query.name || "default";
+    if (typeof marketName !== "string" || marketName.length === 0)
+        return res.status(400).send(["Invalid marketname"]);
+
+    let market;
+    try {
+        market = await MarketCollection.findOne({ name: marketName }).select("-_id").exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+
+    if (market === null) return res.status(404).send();
+    return res.status(200).send(market);
 });
 
 /**
  * @openapi
- * /simulator/market/block/{id}/{duration}:
- *  get:
+ * /simulator/market/:
+ *  patch:
  *      tags:
  *          - Simulator
- *      description: Block a household to sell electricity in a period of time.
+ *      description: Update information about market. <br/><br/> NOTE&colon; Name of market cannot be changed.
  *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
+ *          - name: name
+ *            in: query
+ *            description: Name of market
+ *            required: false
  *            schema:
  *                type: string
- *          - name: duration
- *            in: path
- *            description: number of minutes to block the specified household
- *            required: true
- *            schema:
- *                type: number
- *                minimum: 0
+ *                default: default
+ *      requestBody:
+ *          description: Information to update
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      $ref: "#/components/schemas/Market"
  *      responses:
  *          200:
  *              description: Ok
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          404:
+ *              description: A market with the specified name could not be found.
+ *          500:
+ *              description: Internal server error
+ */
+simulatorRouter.patch("/market/", async (req, res) => {
+    const marketName = req.query.name || "default";
+    const marketChanges = req.body;
+
+    if (marketChanges.hasOwnProperty("name")) delete marketChanges.name; // Prevent requester to change marketname
+    if (typeof marketName !== "string" || marketName.length === 0)
+        return res.status(400).send(["Invalid marketname"]);
+    if (objectIsEmpty(marketChanges))
+        return res.status(400).send(["Empty request body, no status change found"]);
+
+    try {
+        const market = await MarketCollection.findOneAndUpdate({ name: marketName }, marketChanges).exec();
+        if (!market) return res.status(404).send();
+    } catch (error) {
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
+    return res.status(200).send();
+});
+
+/**
+ * @openapi
+ * /simulator/market/limit/:
+ *  put:
+ *      tags:
+ *          - Simulator
+ *      description: Limit a household from selling electricity in a period of time.
+ *      requestBody:
+ *          description: Information about sell limit
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      type: object
+ *                      required: ["householdId", "start", "end"]
+ *                      properties:
+ *                          householdId:
+ *                              type: string
+ *                          start:
+ *                              type: string
+ *                              format: date-time
+ *                          end:
+ *                              type: string
+ *                              format: date-time
+ *      responses:
+ *          200:
+ *              description: Ok
  *          400:
  *              description: Bad request, see response body for a list of errors.
  *              content:
@@ -764,8 +887,79 @@ simulatorRouter.get("/market/price", (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
-    res.status(501).send();
+simulatorRouter.put("/market/limit/", async (req, res) => {
+    const requestBody = req.body;
+    const householdId = requestBody.householdId;
+    const dateStart = new Date(requestBody?.start);
+    const dateEnd = new Date(requestBody?.end);
+
+    if (objectIsEmpty(requestBody)) return res.status(400).send(["Limit information cannot be empty"]);
+    if (!isValidDate(dateStart) || !isValidDate(dateEnd)) return res.status(400).send(["Invalid date"]);
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+
+    try {
+        const household = await HouseholdCollection.findOneAndUpdate(
+            { _id: householdId },
+            { sellLimit: { start: dateStart, end: dateEnd } },
+            { runValidators: true, new: true }
+        ).exec();
+        if (!household) return res.status(404).send();
+    } catch (error) {
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
+
+    return res.status(200).send();
+});
+
+/**
+ * @openapi
+ * /simulator/market/limit/{id}:
+ *  delete:
+ *      tags:
+ *          - Simulator
+ *      description: Limit a household from selling electricity in a period of time.
+ *      parameters:
+ *          - name: id
+ *            in: path
+ *            description: Id of household
+ *            required: true
+ *            schema:
+ *                type: string
+ *      responses:
+ *          200:
+ *              description: Ok
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          403:
+ *              description: The requester does not have sufficient permissions.
+ *          500:
+ *              description: Internal server error
+ */
+simulatorRouter.delete("/market/limit/:id", async (req, res) => {
+    const householdId = req.params.id;
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+
+    try {
+        await HouseholdCollection.findOneAndUpdate({ _id: householdId }, { $unset: { sellLimit: 1 } }).exec();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        else return res.status(500).send();
+    }
+
+    return res.status(200).send();
 });
 
 /**
@@ -775,6 +969,14 @@ simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
  *      tags:
  *          - Simulator
  *      description: Get status of powerplant.
+ *      parameters:
+ *          - name: name
+ *            in: query
+ *            description: Name of powerplant
+ *            required: false
+ *            schema:
+ *                type: string
+ *                default: default
  *      responses:
  *          200:
  *              description: Ok
@@ -783,20 +985,33 @@ simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
  *                      schema:
  *                          $ref: "#/components/schemas/Powerplant"
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/powerplant/status", (req, res) => {
-    res.status(501).send();
+simulatorRouter.get("/powerplant/status", async (req, res) => {
+    const powerplantName = req.query.name || "default";
+
+    if (typeof powerplantName !== "string" || powerplantName.length === 0)
+        return res.status(400).send(["Invalid powerplantname"]);
+
+    let powerplant;
+    try {
+        powerplant = await PowerplantCollection.findOne({ name: powerplantName }).select("-_id").exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+
+    if (powerplant === null) return res.status(404).send();
+    return res.status(200).send(powerplant);
 });
 
 /**
@@ -812,16 +1027,13 @@ simulatorRouter.get("/powerplant/status", (req, res) => {
  *              application/json:
  *                  schema:
  *                      type: object
+ *                      required: ["active"]
  *                      properties:
- *                          enabled:
+ *                          active:
  *                              type: boolean
  *      responses:
  *          200:
  *              description: Ok
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          400:
  *              description: Bad request, see response body for more details.
  *              content:
@@ -830,11 +1042,30 @@ simulatorRouter.get("/powerplant/status", (req, res) => {
  *                          type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.put("/powerplant/status", (req, res) => {
-    res.status(501).send();
+simulatorRouter.put("/powerplant/status", async (req, res) => {
+    const powerplantName = req.query.name || "default";
+    const powerplantStatus = req.body;
+
+    if (objectIsEmpty(powerplantStatus))
+        return res.status(400).send(["Empty request body, no status change found"]);
+    if (typeof powerplantName !== "string" || powerplantName.length === 0)
+        return res.status(400).send(["Invalid powerplantname"]);
+
+    try {
+        await PowerplantCollection.findOneAndUpdate({ name: powerplantName }, { powerplantStatus }).exec();
+        return res.status(200).send();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
 });
