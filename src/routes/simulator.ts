@@ -1,4 +1,5 @@
 import express from "express";
+import flattenObject from "../util/object/flatten";
 import { isValidId } from "../util/validators/mongodbValidator";
 import { objectIsEmpty } from "../util/validators/jsonValidator";
 import { isValidDate } from "../util/validators/dateValidator";
@@ -491,12 +492,12 @@ simulatorRouter.patch("/household/:id", async (req, res) => {
     let householdDoc;
     try {
         householdDoc = await HouseholdCollection.findById(householdId).exec();
+        if (!householdDoc) return res.status(404).send();
     } catch (err) {
-        if (err.name === "DocumentNotFoundError") return res.status(404).send();
-        else return res.status(500).send();
+        return res.status(500).send();
     }
 
-    householdDoc.set(changes);
+    householdDoc.set(flattenObject(changes));
 
     try {
         await householdDoc.save();
@@ -833,7 +834,11 @@ simulatorRouter.patch("/market/", async (req, res) => {
         return res.status(400).send(["Empty request body, no status change found"]);
 
     try {
-        const market = await MarketCollection.findOneAndUpdate({ name: marketName }, marketChanges).exec();
+        const market = await MarketCollection.findOneAndUpdate(
+            { name: marketName },
+            flattenObject(marketChanges),
+            { runValidators: true }
+        ).exec();
         if (!market) return res.status(404).send();
     } catch (error) {
         if (error.name === "ValidationError") {
