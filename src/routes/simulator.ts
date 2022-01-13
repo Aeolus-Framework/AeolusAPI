@@ -1,11 +1,25 @@
 import express from "express";
-import { isValidDate } from "../util/date/validator";
-import { escapeHtml } from "../util/html/escape";
+import flattenObject from "../util/object/flatten";
+import { isValidId } from "../util/validators/mongodbValidator";
+import { objectIsEmpty } from "../util/validators/jsonValidator";
+import { isValidDate } from "../util/validators/dateValidator";
+
+import { householdExist, household as HouseholdCollection } from "../db/models/household";
+import { batteryHistory as BatteryHistoryCollection } from "../db/models/battery";
+import { production as ProductionHistoryCollection } from "../db/models/production";
+import { consumption as ConsumptionHistoryCollection } from "../db/models/consumption";
+import { transmission as TransmissionHistoryCollection } from "../db/models/transmission";
+import { windspeed as WindspeedCollection } from "../db/models/windspeed";
+import { powerplant as PowerplantCollection } from "../db/models/powerplant";
+import { market as MarketCollection } from "../db/models/market";
 
 export const simulatorRouter = express.Router();
 
-function respondWithReqUrl(req: any): string {
-    return `You have navigated to <a href="${req.originalUrl}">${req.originalUrl}</a>`;
+enum historyParameter {
+    battery = "battery",
+    production = "production",
+    consumption = "consumption",
+    transmission = "transmission"
 }
 
 /**
@@ -14,8 +28,11 @@ function respondWithReqUrl(req: any): string {
  *  schemas:
  *      Household:
  *          type: object
+ *          required: ["owner", "name", "area", "location", "baseConsumption", "battery", "sellRatioOverProduction", "buyRatioUnderProduction", "windTurbines", "consumptionSpike"]
  *          properties:
  *              owner:
+ *                  type: string
+ *              name:
  *                  type: string
  *              thumbnail:
  *                  type: string
@@ -24,13 +41,19 @@ function respondWithReqUrl(req: any): string {
  *                  minimum: 0
  *              location:
  *                  type: object
+ *                  required: ["latitude", "longitude"]
  *                  properties:
  *                      latitude:
  *                          type: number
+ *                          minimum: -90
+ *                          maximum: 90
  *                      longitude:
  *                          type: number
+ *                          minimum: -180
+ *                          maximum: 180
  *              blackout:
  *                  type: boolean
+ *                  default: false
  *              baseConsumption:
  *                  type: number
  *                  minimum: 0
@@ -38,8 +61,10 @@ function respondWithReqUrl(req: any): string {
  *                  type: number
  *                  maximum: 1
  *                  minimum: 0
+ *                  default: 0
  *              battery:
  *                  type: object
+ *                  required: ["maxCapacity"]
  *                  properties:
  *                      maxCapacity:
  *                          type: number
@@ -50,6 +75,7 @@ function respondWithReqUrl(req: any): string {
  *                  type: number
  *              windTurbines:
  *                  type: object
+ *                  required: ["active", "maximumProduction", "cutinWindspeed", "cutoutWindspeed"]
  *                  properties:
  *                      active:
  *                          type: number
@@ -61,8 +87,10 @@ function respondWithReqUrl(req: any): string {
  *                          minimum: 0
  *                      cutoutWindspeed:
  *                          type: number
+ *                          minimum: 0
  *              consumptionSpike:
  *                  type: object
+ *                  required: ["AmplitudeMean", "AmplitudeVariance" ,"DurationMean", "DurationVariance"]
  *                  properties:
  *                      AmplitudeMean:
  *                          type: number
@@ -72,6 +100,16 @@ function respondWithReqUrl(req: any): string {
  *                          type: number
  *                      DurationVariance:
  *                          type: number
+ *              sellLimit:
+ *                  type: object
+ *                  required: ["start", "end"]
+ *                  properties:
+ *                      start:
+ *                          type: string
+ *                          format: date-time
+ *                      end:
+ *                          type: string
+ *                          format: date-time
  *
  *      Battery:
  *          type: object
@@ -131,29 +169,54 @@ function respondWithReqUrl(req: any): string {
  *              windspeed:
  *                  type: number
  *                  minimum: 0
- *      MarketPrice:
+ *      Market:
  *          type: object
  *          properties:
- *              timestamp:
+ *              name:
  *                  type: string
- *                  format: date-time
- *              price:
+ *                  description: Must be unique.
+ *              demand:
  *                  type: number
- *                  example: 2.31
- *              currency:
- *                  type: string
- *                  example: euro
+ *                  description: Market demand in kilowatthours (kWh).
+ *              supply:
+ *                  type: number
+ *                  description: Market supply in kilowatthours (kWh).
+ *              basePrice:
+ *                  type: number
+ *                  description: The price if demand == supply, currency sek
+ *              price:
+ *                  type: object
+ *                  properties:
+ *                      validUntil:
+ *                          type: string
+ *                          format: date-time
+ *                      updatedAt:
+ *                          type: string
+ *                          format: date-time
+ *                      value:
+ *                          type: number
+ *                          example: 2.31
+ *                      currency:
+ *                          type: string
+ *                          example: sek
  *      Powerplant:
  *          type: object
  *          properties:
- *              enabled:
+ *              name:
+ *                  type: string
+ *              active:
  *                  type: boolean
- *              status:
+ *              energySource:
  *                  type: string
  *              production:
- *                  type: number
- *              consumption:
- *                  type: number
+ *                  type: object
+ *                  properties:
+ *                      updatedAt:
+ *                          type: string
+ *                          format: date-time
+ *                      value:
+ *                          type: number
+ *                          description: Electricity production in kilowatthours (kWh).
  *
  */
 
@@ -172,10 +235,30 @@ function respondWithReqUrl(req: any): string {
  *                      schema:
  *                          type: array
  *                          items:
- *                              type: string
+ *                              type: object
+ *                              properties:
+ *                                  _id:
+ *                                      type: string
+ *                                  owner:
+ *                                      type: string
+ *                                  name:
+ *                                      type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/grid/blackouts", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.get("/grid/blackouts", async (req, res) => {
+    const query = { blackout: true };
+    const fields = "_id name owner";
+
+    let blackouts;
+    try {
+        blackouts = await HouseholdCollection.find(query, fields).exec();
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send();
+    }
+
+    return res.status(200).send(blackouts);
 });
 
 /**
@@ -188,13 +271,9 @@ simulatorRouter.get("/grid/blackouts", (req, res) => {
  *      responses:
  *          501:
  *              description: Not implemented
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  */
 simulatorRouter.get("/grid/summary", (req, res) => {
-    res.status(200).send("501, not implemented");
+    res.status(501).send();
 });
 
 /**
@@ -213,29 +292,41 @@ simulatorRouter.get("/grid/summary", (req, res) => {
  *                type: string
  *      responses:
  *          200:
- *              description: Ok
+ *              description: A list of all household that belongs to the specified user. <br/><br/> If the user does not own any households, the response will be an empty array.
  *              content:
  *                  application/json:
  *                      schema:
  *                          type: array
  *                          items:
- *                              $ref: "#/components/schemas/Household"
+ *                              type: object
+ *                              allOf:
+ *                                  - type: object
+ *                                    required: ["_id"]
+ *                                    properties:
+ *                                        _id:
+ *                                            type: string
+ *                                  - $ref: "#/components/schemas/Household"
+ *          400:
+ *              description: Invalid user id
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The user could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/households/u/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.get("/households/u/:id", async (req, res) => {
+    const userid = req.params.id;
+    if (isValidId(userid) === false) return res.status(400).send();
+
+    let households;
+    try {
+        households = await HouseholdCollection.find({ owner: userid }).exec();
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send();
+    }
+
+    return res.status(200).send(households);
 });
 
 /**
@@ -255,13 +346,47 @@ simulatorRouter.get("/households/u/:id", (req, res) => {
  *          201:
  *              description: Household was successfully created.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          allOf:
+ *                              - type: object
+ *                                required: ["_id"]
+ *                                properties:
+ *                                    _id:
+ *                                        type: string
+ *                              - $ref: "#/components/schemas/Household"
+ *          400:
+ *              description: Bad request, see response body for more details. <br/><br/>The response contains a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.post("/household/", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.post("/household/", async (req, res) => {
+    const household = req.body;
+    if (objectIsEmpty(household)) return res.status(400).send(["Empty request body, no household found"]);
+
+    if (household.hasOwnProperty("_id")) delete household._id; // Prevent user to set document id
+    const householdDocument = new HouseholdCollection(household);
+
+    try {
+        await householdDocument.save();
+        return res.status(201).send(householdDocument);
+    } catch (error) {
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
 });
 
 /**
@@ -284,32 +409,43 @@ simulatorRouter.post("/household/", (req, res) => {
  *              content:
  *                  application/json:
  *                      schema:
- *                          $ref: "#/components/schemas/Household"
+ *                          allOf:
+ *                              - type: object
+ *                                required: ["_id"]
+ *                                properties:
+ *                                    _id:
+ *                                        type: string
+ *                              - $ref: "#/components/schemas/Household"
+ *          400:
+ *              description: Invalid household id
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
- *              description: The household could not be found or the requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/household/:id", (req, res) => {
-    res.status(200).json({
-        data: {},
-        message: "OK"
-    });
+simulatorRouter.get("/household/:id", async (req, res) => {
+    const householdId = req.params.id;
+    if (isValidId(householdId) === false) return res.status(400).send();
+
+    let household;
+    try {
+        household = await HouseholdCollection.findById(householdId).exec();
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send();
+    }
+
+    if (household === null) return res.status(404).send();
+    else return res.status(200).send(household);
 });
 
 /**
  * @openapi
  * /simulator/household/{id}:
- *  put:
+ *  patch:
  *      tags:
  *          - Simulator
  *      description: Update an existing household
@@ -321,41 +457,62 @@ simulatorRouter.get("/household/:id", (req, res) => {
  *            schema:
  *                type: string
  *      requestBody:
- *          description: Information about household to update
+ *          description: Information about household to update. <br/><br/>Note&#58; Only the properties that should be changed are required, other properties can be skipped.
  *          content:
  *              application/json:
  *                  schema:
  *                      $ref: "#/components/schemas/Household"
  *      responses:
  *          200:
- *              description: Household was successfully created.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *              description: Household was successfully updated.
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for more details. <br/><br/>The response contains a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
  *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  *
  */
-simulatorRouter.put("/household/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.patch("/household/:id", async (req, res) => {
+    const changes = req.body;
+    const householdId = req.params.id;
+
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+    if (objectIsEmpty(changes)) return res.status(400).send(["Empty request body, no changes found"]);
+
+    let householdDoc;
+    try {
+        householdDoc = await HouseholdCollection.findById(householdId).exec();
+        if (!householdDoc) return res.status(404).send();
+    } catch (err) {
+        return res.status(500).send();
+    }
+
+    householdDoc.set(flattenObject(changes));
+
+    try {
+        await householdDoc.save();
+        return res.status(200).send();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
 });
 
 /**
@@ -364,7 +521,7 @@ simulatorRouter.put("/household/:id", (req, res) => {
  *  delete:
  *      tags:
  *          - Simulator
- *      description: Update an existing household
+ *      description: Delete a household
  *      parameters:
  *          - name: id
  *            in: path
@@ -373,40 +530,36 @@ simulatorRouter.put("/household/:id", (req, res) => {
  *            schema:
  *                type: string
  *      responses:
- *          200:
- *              description: Household was successfully created.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          204:
+ *              description: Household was successfully deleted.
  *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *              description: Invalid household id.
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
  *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  *
  */
-simulatorRouter.delete("/household/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.delete("/household/:id", async (req, res) => {
+    const householdId = req.params.id;
+
+    if (!isValidId(householdId)) return res.status(400).send();
+
+    try {
+        const household = await HouseholdCollection.findById(householdId).remove().exec();
+        if (household.deletedCount === 0) return res.status(404).send();
+    } catch (err) {
+        return res.status(500).send();
+    }
+    return res.status(204).send();
 });
 
 /**
  * @openapi
- * /simulator/household/{id}/battery/{from}/{to}:
+ * /simulator/household/{id}/history/{collection}/{from}/{to}:
  *  get:
  *      tags:
  *          - Simulator
@@ -414,277 +567,110 @@ simulatorRouter.delete("/household/:id", (req, res) => {
  *      parameters:
  *          - name: id
  *            in: path
- *            description: id of household
+ *            description: Id of household
  *            required: true
  *            schema:
  *                type: string
+ *          - name: collection
+ *            in: path
+ *            description: Parameter to request historical data of.
+ *            required: true
+ *            schema:
+ *                type: string
+ *                enum:
+ *                    - battery
+ *                    - production
+ *                    - consumption
+ *                    - transmission
  *          - name: from
  *            in: path
- *            description: date or datetime to get battery history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
+ *            description: Date or datetime to get battery history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
  *            required: true
  *            schema:
  *                type: string
  *                format: date-time
  *          - name: to
  *            in: path
- *            description: date or datetime to get battery history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
+ *            description: Date or datetime to get battery history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
  *            required: true
  *            schema:
  *                type: string
  *                format: date-time
  *      responses:
  *          200:
- *              description: Ok
+ *              description: Ok. <br/><br/>The response type will be different based on the specified `collection` parameter. However, only one schema type will be used at once.
  *              content:
  *                  application/json:
  *                      schema:
  *                          type: array
  *                          items:
- *                              $ref: "#/components/schemas/Battery"
+ *                              oneOf:
+ *                                  - $ref: '#/components/schemas/Battery'
+ *                                  - $ref: '#/components/schemas/Production'
+ *                                  - $ref: '#/components/schemas/Consumption'
+ *                                  - $ref: '#/components/schemas/Transmission'
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          404:
  *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/household/:id/battery/:from/:to?", (req, res) => {
+simulatorRouter.get("/household/:id/history/:collection/:from/:to?", async (req, res) => {
+    const householdId = req.params.id;
+    const collection: historyParameter = historyParameter[req.params.collection?.toLowerCase()];
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400);
-        res.send("Invalid date");
-    }
-    res.send(
-        `You have requested battery of household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
-});
 
-/**
- * @openapi
- * /simulator/household/{id}/production/{from}/{to}:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Get production history from a household between two dates
- *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
- *            schema:
- *                type: string
- *          - name: from
- *            in: path
- *            description: date or datetime to get production history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *          - name: to
- *            in: path
- *            description: date or datetime to get production history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *      responses:
- *          200:
- *              description: Ok
- *              content:
- *                  application/json:
- *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Production"
- *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          403:
- *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *
- */
-simulatorRouter.get("/household/:id/production/:from/:to?", (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400);
-        res.send("Invalid date");
-    }
-    res.send(
-        `You have requested production of household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
-});
+    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
 
-/**
- * @openapi
- * /simulator/household/{id}/consumption/{from}/{to}:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Get consumption history from a household between two dates
- *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
- *            schema:
- *                type: string
- *          - name: from
- *            in: path
- *            description: date or datetime to get consumption history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *          - name: to
- *            in: path
- *            description: date or datetime to get consumption history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *      responses:
- *          200:
- *              description: Ok
- *              content:
- *                  application/json:
- *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Consumption"
- *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          403:
- *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *
- */
-simulatorRouter.get("/household/:id/consumption/:from/:to?", (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400);
-        res.send("Invalid date");
-    }
-    res.send(
-        `You have requested information about household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
-});
+    const query = { timestamp: { $gte: dateFrom, $lte: dateTo }, household: householdId };
+    const fields = "-_id";
 
-/**
- * @openapi
- * /simulator/household/{id}/transmission/{from}/{to}:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Get transmission history from a household between two dates
- *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
- *            schema:
- *                type: string
- *          - name: from
- *            in: path
- *            description: date or datetime to get transmission history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *          - name: to
- *            in: path
- *            description: date or datetime to get transmission history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
- *            schema:
- *                type: string
- *                format: date-time
- *      responses:
- *          200:
- *              description: Ok
- *              content:
- *                  application/json:
- *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Transmission"
- *          400:
- *              description: Bad request, see response body for more details.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          403:
- *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *          404:
- *              description: The household could not be found.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
- *
- */
-simulatorRouter.get("/household/:id/transmission/:from/:to?", (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400).send("Invalid date");
+    let historyCollection;
+    switch (collection) {
+        case historyParameter.battery:
+            historyCollection = BatteryHistoryCollection;
+            break;
+        case historyParameter.consumption:
+            historyCollection = ConsumptionHistoryCollection;
+            break;
+        case historyParameter.production:
+            historyCollection = ProductionHistoryCollection;
+            break;
+        case historyParameter.transmission:
+            historyCollection = TransmissionHistoryCollection;
+            break;
+        default:
+            return res.status(400).send(["Invalid history parameter"]);
     }
-    res.send(
-        `You have requested information about household ${escapeHtml(
-            req.params.id
-        )} from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
+
+    let historicalData: Array<any>;
+    try {
+        historicalData = await historyCollection.find(query).select(fields).exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+
+    if (historicalData.length > 0) return res.status(200).send(historicalData);
+
+    try {
+        const householdExists = await householdExist(householdId);
+        if (householdExists) return res.status(200).send(historicalData);
+        else return res.status(404);
+    } catch (error) {
+        return res.status(500).send();
+    }
 });
 
 /**
@@ -719,90 +705,266 @@ simulatorRouter.get("/household/:id/transmission/:from/:to?", (req, res) => {
  *                          items:
  *                              $ref: "#/components/schemas/Windspeed"
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          500:
+ *              description: Internal server error
  *
  */
-simulatorRouter.get("/windspeed/:from/:to?", (req, res) => {
+simulatorRouter.get("/windspeed/:from/:to?", async (req, res) => {
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) {
-        res.status(400).send("Invalid date");
+
+    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
+
+    const query = { timestamp: { $gte: dateFrom, $lte: dateTo } };
+    const fields = "-_id";
+
+    let historicalData: Array<any>;
+    try {
+        historicalData = await WindspeedCollection.find(query).select(fields).exec();
+    } catch (error) {
+        return res.status(500).send();
     }
-    res.send(
-        `You have requested windspeed history from ${dateFrom.toLocaleDateString()} to ${dateTo.toLocaleDateString()}`
-    );
+
+    return res.status(200).send(historicalData);
 });
 
 /**
  * @openapi
- * /simulator/market/price:
+ * /simulator/market/:
  *  get:
  *      tags:
  *          - Simulator
- *      description: Get latest electricity price in price per kilowatt hour (kWh)
+ *      description: Get information about market.
+ *      parameters:
+ *          - name: name
+ *            in: query
+ *            description: Name of market
+ *            required: false
+ *            schema:
+ *                type: string
+ *                default: default
  *      responses:
  *          200:
  *              description: Ok
  *              content:
  *                  application/json:
  *                      schema:
- *                          $ref: "#/components/schemas/MarketPrice"
+ *                          $ref: "#/components/schemas/Market"
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          404:
+ *              description: A market with the specified name could not be found.
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/market/price", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.get("/market/", async (req, res) => {
+    const marketName = req.query.name || "default";
+    if (typeof marketName !== "string" || marketName.length === 0)
+        return res.status(400).send(["Invalid marketname"]);
+
+    let market;
+    try {
+        market = await MarketCollection.findOne({ name: marketName }).select("-_id").exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+
+    if (market === null) return res.status(404).send();
+    return res.status(200).send(market);
 });
 
 /**
  * @openapi
- * /simulator/market/block/{id}/{duration}:
- *  get:
+ * /simulator/market/:
+ *  patch:
  *      tags:
  *          - Simulator
- *      description: Block a household to sell electricity in a period of time.
+ *      description: Update information about market. <br/><br/> NOTE&colon; Name of market cannot be changed.
  *      parameters:
- *          - name: id
- *            in: path
- *            description: id of household
- *            required: true
+ *          - name: name
+ *            in: query
+ *            description: Name of market
+ *            required: false
  *            schema:
  *                type: string
- *          - name: duration
- *            in: path
- *            description: number of minutes to block the specified household
- *            required: true
- *            schema:
- *                type: number
- *                minimum: 0
+ *                default: default
+ *      requestBody:
+ *          description: Information to update
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      $ref: "#/components/schemas/Market"
  *      responses:
  *          200:
  *              description: Ok
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          404:
+ *              description: A market with the specified name could not be found.
+ *          500:
+ *              description: Internal server error
+ */
+simulatorRouter.patch("/market/", async (req, res) => {
+    const marketName = req.query.name || "default";
+    const marketChanges = req.body;
+
+    if (marketChanges.hasOwnProperty("name")) delete marketChanges.name; // Prevent requester to change marketname
+    if (typeof marketName !== "string" || marketName.length === 0)
+        return res.status(400).send(["Invalid marketname"]);
+    if (objectIsEmpty(marketChanges))
+        return res.status(400).send(["Empty request body, no status change found"]);
+
+    try {
+        const market = await MarketCollection.findOneAndUpdate(
+            { name: marketName },
+            flattenObject(marketChanges),
+            { runValidators: true }
+        ).exec();
+        if (!market) return res.status(404).send();
+    } catch (error) {
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
+    return res.status(200).send();
+});
+
+/**
+ * @openapi
+ * /simulator/market/limit/:
+ *  put:
+ *      tags:
+ *          - Simulator
+ *      description: Limit a household from selling electricity in a period of time.
+ *      requestBody:
+ *          description: Information about sell limit
+ *          content:
+ *              application/json:
+ *                  schema:
+ *                      type: object
+ *                      required: ["householdId", "start", "end"]
+ *                      properties:
+ *                          householdId:
+ *                              type: string
+ *                          start:
+ *                              type: string
+ *                              format: date-time
+ *                          end:
+ *                              type: string
+ *                              format: date-time
+ *      responses:
+ *          200:
+ *              description: Ok
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
-    res.send(
-        `You've blocked household ${escapeHtml(req.params.id)} to sell electricity for ${escapeHtml(
-            req.params.duration
-        )} minute(s).`
-    );
+simulatorRouter.put("/market/limit/", async (req, res) => {
+    const requestBody = req.body;
+    const householdId = requestBody.householdId;
+    const dateStart = new Date(requestBody?.start);
+    const dateEnd = new Date(requestBody?.end);
+
+    if (objectIsEmpty(requestBody)) return res.status(400).send(["Limit information cannot be empty"]);
+    if (!isValidDate(dateStart) || !isValidDate(dateEnd)) return res.status(400).send(["Invalid date"]);
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+
+    try {
+        const household = await HouseholdCollection.findOneAndUpdate(
+            { _id: householdId },
+            { sellLimit: { start: dateStart, end: dateEnd } },
+            { runValidators: true, new: true }
+        ).exec();
+        if (!household) return res.status(404).send();
+    } catch (error) {
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
+
+    return res.status(200).send();
+});
+
+/**
+ * @openapi
+ * /simulator/market/limit/{id}:
+ *  delete:
+ *      tags:
+ *          - Simulator
+ *      description: Limit a household from selling electricity in a period of time.
+ *      parameters:
+ *          - name: id
+ *            in: path
+ *            description: Id of household
+ *            required: true
+ *            schema:
+ *                type: string
+ *      responses:
+ *          200:
+ *              description: Ok
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          403:
+ *              description: The requester does not have sufficient permissions.
+ *          500:
+ *              description: Internal server error
+ */
+simulatorRouter.delete("/market/limit/:id", async (req, res) => {
+    const householdId = req.params.id;
+    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+
+    try {
+        await HouseholdCollection.findOneAndUpdate({ _id: householdId }, { $unset: { sellLimit: 1 } }).exec();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        else return res.status(500).send();
+    }
+
+    return res.status(200).send();
 });
 
 /**
@@ -812,6 +974,14 @@ simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
  *      tags:
  *          - Simulator
  *      description: Get status of powerplant.
+ *      parameters:
+ *          - name: name
+ *            in: query
+ *            description: Name of powerplant
+ *            required: false
+ *            schema:
+ *                type: string
+ *                default: default
  *      responses:
  *          200:
  *              description: Ok
@@ -820,20 +990,33 @@ simulatorRouter.get("/market/block/:id/:duration", (req, res) => {
  *                      schema:
  *                          $ref: "#/components/schemas/Powerplant"
  *          400:
- *              description: Bad request, see response body for more details.
+ *              description: Bad request, see response body for a list of errors.
  *              content:
- *                  text/plain:
+ *                  application/json:
  *                      schema:
- *                          type: string
+ *                          type: array
+ *                          items:
+ *                              type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.get("/powerplant/status", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.get("/powerplant/status", async (req, res) => {
+    const powerplantName = req.query.name || "default";
+
+    if (typeof powerplantName !== "string" || powerplantName.length === 0)
+        return res.status(400).send(["Invalid powerplantname"]);
+
+    let powerplant;
+    try {
+        powerplant = await PowerplantCollection.findOne({ name: powerplantName }).select("-_id").exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+
+    if (powerplant === null) return res.status(404).send();
+    return res.status(200).send(powerplant);
 });
 
 /**
@@ -849,16 +1032,13 @@ simulatorRouter.get("/powerplant/status", (req, res) => {
  *              application/json:
  *                  schema:
  *                      type: object
+ *                      required: ["active"]
  *                      properties:
- *                          enabled:
+ *                          active:
  *                              type: boolean
  *      responses:
  *          200:
  *              description: Ok
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
  *          400:
  *              description: Bad request, see response body for more details.
  *              content:
@@ -867,11 +1047,30 @@ simulatorRouter.get("/powerplant/status", (req, res) => {
  *                          type: string
  *          403:
  *              description: The requester does not have sufficient permissions.
- *              content:
- *                  text/plain:
- *                      schema:
- *                          type: string
+ *          500:
+ *              description: Internal server error
  */
-simulatorRouter.put("/powerplant/status", (req, res) => {
-    res.send(respondWithReqUrl(req));
+simulatorRouter.put("/powerplant/status", async (req, res) => {
+    const powerplantName = req.query.name || "default";
+    const powerplantStatus = req.body;
+
+    if (objectIsEmpty(powerplantStatus))
+        return res.status(400).send(["Empty request body, no status change found"]);
+    if (typeof powerplantName !== "string" || powerplantName.length === 0)
+        return res.status(400).send(["Invalid powerplantname"]);
+
+    try {
+        await PowerplantCollection.findOneAndUpdate({ name: powerplantName }, { powerplantStatus }).exec();
+        return res.status(200).send();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
 });

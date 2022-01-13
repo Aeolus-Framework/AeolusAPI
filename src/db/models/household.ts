@@ -1,8 +1,10 @@
 var mongoose = require("mongoose");
+var http = require("http");
 
-export class Household {
+export interface Household {
     owner: string;
-    thumbnail: string;
+    name: string;
+    thumbnail?: string;
     area: number;
     location: {
         latitude: number;
@@ -16,6 +18,10 @@ export class Household {
     };
     sellRatioOverProduction: number;
     buyRatioUnderProduction: number;
+    sellLimit: {
+        start: Date;
+        end: Date;
+    };
     windTurbines: {
         active: number;
         maximumProduction: number;
@@ -28,43 +34,102 @@ export class Household {
         DurationMean: number;
         DurationVariance: number;
     };
-
-    constructor(init?: Partial<Household>) {
-        Object.assign(this, init);
-    }
 }
+
+var sellLimitSchema = new mongoose.Schema(
+    {
+        start: { type: Date, required: true },
+        end: { type: Date, required: true }
+    },
+    { _id: false }
+);
 
 var householdSchema = new mongoose.Schema(
     {
-        owner: String,
+        owner: { type: String, required: true },
         thumbnail: String,
-        area: Number,
+        name: { type: String, required: true },
+        area: { type: Number, required: true, min: 0 },
         location: {
-            latitude: Number,
-            longitude: Number
+            latitude: { type: Number, required: true, min: -90, max: 90 },
+            longitude: { type: Number, required: true, min: -180, max: 180 }
         },
-        blackout: Boolean,
-        baseConsumption: Number,
-        heatingEfficiency: Number,
+        blackout: { type: Boolean, required: false, default: false },
+        baseConsumption: { type: Number, required: true, min: 0 },
+        heatingEfficiency: { type: Number, required: false, min: 0, default: 0 },
         battery: {
-            maxCapacity: Number
+            maxCapacity: { type: Number, required: true, min: 0 }
         },
-        sellRatioOverProduction: Number,
-        buyRatioUnderProduction: Number,
+        sellRatioOverProduction: { type: Number, required: true, min: 0, max: 1 },
+        buyRatioUnderProduction: { type: Number, required: true, min: 0, max: 1 },
+        sellLimit: {
+            type: sellLimitSchema,
+            required: false,
+            validate: [validatorSellLimitDates, "Sell limit enddate cannot occur before startdate"]
+        },
         windTurbines: {
-            active: Number,
-            maximumProduction: Number,
-            cutinWindspeed: Number,
-            cutoutWindspeed: Number
+            active: { type: Number, required: true, min: 0 },
+            maximumProduction: { type: Number, required: true, min: 0 },
+            cutinWindspeed: {
+                type: Number,
+                required: true,
+                min: 0,
+                validate: [validatorCutinWindspeed, "Cutin windspeed must be less than cutout windspeed"]
+            },
+            cutoutWindspeed: {
+                type: Number,
+                required: true,
+                min: 0,
+                validate: [validatorCutoutWindspeed, "Cutout windspeed must be greater than cutin windspeed"]
+            }
         },
         consumptionSpike: {
-            AmplitudeMean: Number,
-            AmplitudeVariance: Number,
-            DurationMean: Number,
-            DurationVariance: Number
+            AmplitudeMean: { type: Number, required: true },
+            AmplitudeVariance: { type: Number, required: true },
+            DurationMean: { type: Number, required: true },
+            DurationVariance: { type: Number, required: true }
         }
     },
     { versionKey: false }
 );
+householdSchema.post(/update|save|remove|delete/i, reloadHouseholdInSimulation);
 
 export const household = mongoose.model("household", householdSchema);
+
+function validatorCutinWindspeed(value: number): boolean {
+    return this.windTurbines.cutoutWindspeed > value;
+}
+
+function validatorCutoutWindspeed(value: number): boolean {
+    return this.windTurbines.cutinWindspeed < value;
+}
+
+function validatorSellLimitDates(obj: any): boolean {
+    return obj?.start <= obj?.end;
+}
+
+/**
+ * Check wether a household exist
+ * @param id Id of household
+ */
+export async function householdExist(id: string): Promise<boolean> {
+    return await household.exist({ _id: id });
+}
+
+async function reloadHouseholdInSimulation(doc: any): Promise<void> {
+    if (doc === null) return;
+    var options = {
+        host: process.env.SIMULATOR_API_HOST || "localhost",
+        port: process.env.SIMULATOR_API_PORT || 5500,
+        path: `/reload/household?id=${doc._id}`,
+        method: "HEAD"
+    };
+
+    const request = http.request(options, res => {
+        console.log(`(${res.statusCode}) HEAD Request to simulator`);
+    });
+    request.on("error", err => {
+        console.log(err);
+    });
+    request.end();
+}
