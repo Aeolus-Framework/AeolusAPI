@@ -56,14 +56,15 @@ npm run docgen
 
 # Enviroment variables avaliable
 
-| name                              | description                                                 | default       |
-| --------------------------------- | ----------------------------------------------------------- | ------------- |
+| name                              | description                                                 | default                |
+| --------------------------------- | ----------------------------------------------------------- | ---------------------- |
 | `MONGODB_HOST`                    | Host with a mongo instance running, may include port number |
 | `MONGODB_DATABASE`                | Database to use                                             |
-| `MONGODB_USERNAME` _(optional)_   | Username to access database                                 | _None_        |
-| `MONGODB_PASSWORD` _(optional)_   | Password to access database                                 | _None_        |
-| `SIMULATOR_API_HOST` _(optional)_ | Hostname used to access simulator API                       | `"localhost"` |
-| `SIMULATOR_API_PORT` _(optional)_ | Port used to access simulator API                           | `5500`        |
+| `MONGODB_USERNAME` _(optional)_   | Username to access database                                 | _None_                 |
+| `MONGODB_PASSWORD` _(optional)_   | Password to access database                                 | _None_                 |
+| `SWAGGER_FILE` _(optional)_       | File to open-api swagger doc                                | `"./openapi_doc.json"` |
+| `SIMULATOR_API_HOST` _(optional)_ | Hostname used to access simulator API                       | `"localhost"`          |
+| `SIMULATOR_API_PORT` _(optional)_ | Port used to access simulator API                           | `5500`                 |
 
 # Build and run with `docker`
 
