@@ -15,6 +15,15 @@ const swaggerFile = process.env.SWAGGER_FILE || "./openapi_doc.json";
 
 // Middleware
 app.use(express.json());
+app.use((err, req, res, next) => {
+    // Check if JSON parsing error
+    if (err instanceof SyntaxError && "body" in err) {
+        console.error(err);
+        return res.status(400).send();
+    }
+
+    next();
+});
 
 app.get("/", (req, res) => res.redirect(302, "./docs/"));
 
