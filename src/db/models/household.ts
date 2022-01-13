@@ -1,4 +1,5 @@
 var mongoose = require("mongoose");
+var http = require("http");
 
 export interface Household {
     owner: string;
@@ -91,6 +92,7 @@ var householdSchema = new mongoose.Schema(
     },
     { versionKey: false }
 );
+householdSchema.post(/update|save|remove|delete/i, reloadHouseholdInSimulation);
 
 export const household = mongoose.model("household", householdSchema);
 
@@ -112,4 +114,22 @@ function validatorSellLimitDates(obj: any): boolean {
  */
 export async function householdExist(id: string): Promise<boolean> {
     return await household.exist({ _id: id });
+}
+
+async function reloadHouseholdInSimulation(doc: any): Promise<void> {
+    if (doc === null) return;
+    var options = {
+        host: process.env.SIMULATOR_API_HOST || "localhost",
+        port: process.env.SIMULATOR_API_PORT || 5500,
+        path: `/reload/household?id=${doc._id}`,
+        method: "HEAD"
+    };
+
+    const request = http.request(options, res => {
+        console.log(`(${res.statusCode}) HEAD Request to simulator`);
+    });
+    request.on("error", err => {
+        console.log(err);
+    });
+    request.end();
 }
