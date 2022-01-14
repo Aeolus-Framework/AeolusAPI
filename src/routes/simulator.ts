@@ -338,7 +338,7 @@ simulatorRouter.get("/households/u/:id", authorize(Roles.admin, Roles.user), asy
  *          - Simulator
  *      description: Create a new household with the requester as owner
  *      requestBody:
- *          description: Information about household to create. <br/><br/> NOTE: Specifying `owner` will not have any effect.
+ *          description: Information about household to create. <br/><br/> NOTE&colon; Specifying `owner` will not have any effect.
  *          content:
  *              application/json:
  *                  schema:
