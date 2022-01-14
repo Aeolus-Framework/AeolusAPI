@@ -1,4 +1,4 @@
-import express, { type Request } from "express";
+import express from "express";
 import flattenObject from "../util/object/flatten";
 import { isValidId } from "../util/validators/mongodbValidator";
 import { objectIsEmpty } from "../util/validators/jsonValidator";
@@ -13,6 +13,7 @@ import { getLatestWindspeed, windspeed as WindspeedCollection } from "../db/mode
 import { powerplant as PowerplantCollection } from "../db/models/powerplant";
 import { market as MarketCollection } from "../db/models/market";
 import { authorize, Roles } from "../middleware/auth";
+import { userIsAdmin, userIsAdminOrHouseholdOwner } from "../util/routeHelpers";
 
 export const simulatorRouter = express.Router();
 
@@ -1243,18 +1244,3 @@ simulatorRouter.put("/powerplant/status", authorize(Roles.admin), async (req, re
         } else return res.status(500).send();
     }
 });
-
-/////////////////////////
-//    Helper methods   //
-/////////////////////////
-function userIsAdminOrHouseholdOwner(user: Request["user"], household: any): boolean {
-    return userIsAdmin(user) || userIsHouseholdOwner(user, household);
-}
-
-function userIsAdmin(user: Request["user"]): boolean {
-    return user?.role === Roles.admin;
-}
-
-function userIsHouseholdOwner(user: Request["user"], household: any): boolean {
-    return user?.uid === household?.owner;
-}
