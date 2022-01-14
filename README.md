@@ -62,6 +62,8 @@ npm run docgen
 | `MONGODB_DATABASE`                | Database to use                                             |
 | `MONGODB_USERNAME` _(optional)_   | Username to access database                                 | _None_                 |
 | `MONGODB_PASSWORD` _(optional)_   | Password to access database                                 | _None_                 |
+| `JWT_ISSUER` _(optional)_         | Issuer to use when creating and verifying JWTs              | `"none"`               |
+| `JWT_SECRET` _(optional)_         | Secret to use when creating and verifying JWTs              | `"123"`                |
 | `SWAGGER_FILE` _(optional)_       | File to open-api swagger doc                                | `"./openapi_doc.json"` |
 | `SIMULATOR_API_HOST` _(optional)_ | Hostname used to access simulator API                       | `"localhost"`          |
 | `SIMULATOR_API_PORT` _(optional)_ | Port used to access simulator API                           | `5500`                 |
