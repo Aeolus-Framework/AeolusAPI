@@ -34,6 +34,20 @@ const options = {
                 name: "Social",
                 description: "Interact with other users and other user related things"
             }
+        ],
+        components: {
+            securitySchemes: {
+                bearerAuth: {
+                    type: NODE_ENV_IS_DEV ? "http" : "https",
+                    scheme: "bearer",
+                    bearerFormat: "JWT"
+                }
+            }
+        },
+        security: [
+            {
+                bearerAuth: []
+            }
         ]
     },
     apis: ["./dist/routes/*.js"]
