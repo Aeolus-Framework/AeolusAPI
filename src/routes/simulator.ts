@@ -9,7 +9,7 @@ import { batteryHistory as BatteryHistoryCollection } from "../db/models/battery
 import { production as ProductionHistoryCollection } from "../db/models/production";
 import { consumption as ConsumptionHistoryCollection } from "../db/models/consumption";
 import { transmission as TransmissionHistoryCollection } from "../db/models/transmission";
-import { windspeed as WindspeedCollection } from "../db/models/windspeed";
+import { getLatestWindspeed, windspeed as WindspeedCollection } from "../db/models/windspeed";
 import { powerplant as PowerplantCollection } from "../db/models/powerplant";
 import { market as MarketCollection } from "../db/models/market";
 import { authorize, Roles } from "../middleware/auth";
@@ -332,6 +332,46 @@ simulatorRouter.get("/households/u/:id", authorize(Roles.admin, Roles.user), asy
 
 /**
  * @openapi
+ * /simulator/household/:
+ *  get:
+ *      tags:
+ *          - Simulator
+ *      description: Get all households that belongs to the requester.
+ *      responses:
+ *          200:
+ *              description: A list of all household that belongs to the requester. <br/><br/> If the user does not own any households, the response will be an empty array.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: object
+ *                              allOf:
+ *                                  - type: object
+ *                                    required: ["_id"]
+ *                                    properties:
+ *                                        _id:
+ *                                            type: string
+ *                                  - $ref: "#/components/schemas/Household"
+ *          403:
+ *              description: The requester does not have sufficient permissions.
+ *          500:
+ *              description: Internal server error
+ *
+ */
+simulatorRouter.get("/household/", authorize(Roles.user), async (req, res) => {
+    const userid = req.user.uid;
+
+    try {
+        const households = await HouseholdCollection.find({ owner: userid }).exec();
+        return res.status(200).send(households);
+    } catch (error) {
+        return res.status(500).send();
+    }
+});
+
+/**
+ * @openapi
  * /simulator/household:
  *  post:
  *      tags:
@@ -571,11 +611,110 @@ simulatorRouter.delete("/household/:id", authorize(Roles.admin, Roles.user), asy
 
 /**
  * @openapi
- * /simulator/household/{id}/history/{collection}/{from}/{to}:
+ * /simulator/household/{id}/latest/{collection}:
  *  get:
  *      tags:
  *          - Simulator
- *      description: Get battery history from a household between two dates
+ *      description: Get latest value of a parameter (defined in `collection`) of a household
+ *      parameters:
+ *          - name: id
+ *            in: path
+ *            description: Id of household
+ *            required: true
+ *            schema:
+ *                type: string
+ *          - name: collection
+ *            in: path
+ *            description: Parameter to request historical data of.
+ *            required: true
+ *            schema:
+ *                type: string
+ *                enum:
+ *                    - battery
+ *                    - production
+ *                    - consumption
+ *                    - transmission
+ *      responses:
+ *          200:
+ *              description: Ok. <br/><br/>The response type will be different based on the specified `collection` parameter. However, only one schema type will be used at once.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          oneOf:
+ *                              - $ref: '#/components/schemas/Battery'
+ *                              - $ref: '#/components/schemas/Production'
+ *                              - $ref: '#/components/schemas/Consumption'
+ *                              - $ref: '#/components/schemas/Transmission'
+ *          400:
+ *              description: Bad request, see response body for a list of errors.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              type: string
+ *          403:
+ *              description: The requester does not have sufficient permissions.
+ *          404:
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
+ *
+ */
+simulatorRouter.get(
+    "/household/:id/latest/:collection/",
+    authorize(Roles.admin, Roles.user),
+    async (req, res) => {
+        const householdId = req.params.id;
+        const collection: historyParameter = historyParameter[req.params.collection?.toLowerCase()];
+        if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+
+        let historyCollection;
+        switch (collection) {
+            case historyParameter.battery:
+                historyCollection = BatteryHistoryCollection;
+                break;
+            case historyParameter.consumption:
+                historyCollection = ConsumptionHistoryCollection;
+                break;
+            case historyParameter.production:
+                historyCollection = ProductionHistoryCollection;
+                break;
+            case historyParameter.transmission:
+                historyCollection = TransmissionHistoryCollection;
+                break;
+            default:
+                return res.status(400).send(["Invalid history parameter"]);
+        }
+
+        let historicalData: Array<any>;
+        let household: boolean;
+        try {
+            [historicalData, household] = await Promise.all([
+                historyCollection
+                    .findOne({ household: householdId })
+                    .sort({ timestamp: -1 })
+                    .select("-_id")
+                    .exec(),
+                HouseholdCollection.findOne({ _id: householdId }).exec()
+            ]);
+        } catch (error) {
+            return res.status(500).send();
+        }
+
+        if (!household) return res.status(404).send();
+        if (!userIsAdminOrHouseholdOwner(req.user, household)) return res.status(403).send();
+        else return res.status(200).send(historicalData);
+    }
+);
+
+/**
+ * @openapi
+ * /simulator/household/{id}/history/{collection}/{from}:
+ *  get:
+ *      tags:
+ *          - Simulator
+ *      description: Get history from a household between two dates.
  *      parameters:
  *          - name: id
  *            in: path
@@ -602,9 +741,9 @@ simulatorRouter.delete("/household/:id", authorize(Roles.admin, Roles.user), asy
  *                type: string
  *                format: date-time
  *          - name: to
- *            in: path
+ *            in: query
  *            description: Date or datetime to get battery history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
+ *            required: false
  *            schema:
  *                type: string
  *                format: date-time
@@ -638,13 +777,13 @@ simulatorRouter.delete("/household/:id", authorize(Roles.admin, Roles.user), asy
  *
  */
 simulatorRouter.get(
-    "/household/:id/history/:collection/:from/:to?",
+    "/household/:id/history/:collection/:from",
     authorize(Roles.admin, Roles.user),
     async (req, res) => {
         const householdId = req.params.id;
         const collection: historyParameter = historyParameter[req.params.collection?.toLowerCase()];
         const dateFrom = new Date(req.params.from);
-        const dateTo = req.params.to ? new Date(req.params.to) : new Date();
+        const dateTo = req.params.to ? new Date(req.query.to?.toString()) : new Date();
 
         if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
         if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
@@ -689,23 +828,23 @@ simulatorRouter.get(
 
 /**
  * @openapi
- * /simulator/windspeed/{from}/{to}:
+ * /simulator/windspeed/:
  *  get:
  *      tags:
  *          - Simulator
  *      description: Get windspeed history between two dates
  *      parameters:
  *          - name: from
- *            in: path
+ *            in: query
  *            description: date or datetime to get windspeed history from. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT.
- *            required: true
+ *            required: false
  *            schema:
  *                type: string
  *                format: date-time
  *          - name: to
- *            in: path
+ *            in: query
  *            description: date or datetime to get windspeed history to. Value can also be number of milliseconds since Jan 1, 1970, 00:00:00.000 GMT. If empty, the value will be time now.
- *            required: true
+ *            required: false
  *            schema:
  *                type: string
  *                format: date-time
@@ -715,9 +854,12 @@ simulatorRouter.get(
  *              content:
  *                  application/json:
  *                      schema:
- *                          type: array
- *                          items:
- *                              $ref: "#/components/schemas/Windspeed"
+ *                          oneOf:
+ *                              - type: array
+ *                                items:
+ *                                    $ref: "#/components/schemas/Windspeed"
+ *                              - $ref: "#/components/schemas/Windspeed"
+ *
  *          400:
  *              description: Bad request, see response body for a list of errors.
  *              content:
@@ -730,9 +872,22 @@ simulatorRouter.get(
  *              description: Internal server error
  *
  */
-simulatorRouter.get("/windspeed/:from/:to?", authorize(Roles.admin, Roles.user), async (req, res) => {
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
+simulatorRouter.get("/windspeed/", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const dateFromQuery = req.query.from?.toString();
+    const dateToQuery = req.query.to?.toString();
+
+    if (!dateFromQuery && !dateToQuery) {
+        try {
+            const windspeed = await getLatestWindspeed();
+            if (!windspeed) return res.status(200).send({ timestamp: undefined, windspeed: undefined });
+            else return res.status(200).send(windspeed);
+        } catch (error) {
+            return res.status(500).send();
+        }
+    }
+
+    const dateFrom = new Date(dateFromQuery);
+    const dateTo = dateToQuery ? new Date(dateToQuery) : new Date();
 
     if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
 

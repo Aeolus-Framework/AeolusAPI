@@ -14,3 +14,15 @@ var windspeedSchema = new mongoose.Schema(
 );
 
 export const windspeed = mongoose.model("windspeed", windspeedSchema);
+
+/**
+ *
+ * @returns If last value exists, last windspeed value. Otherwise, undefined.
+ */
+export async function getLatestWindspeed() {
+    try {
+        return await windspeed.findOne().sort({ timestamp: -1 }).select("-_id").exec();
+    } catch (error) {
+        return undefined;
+    }
+}
