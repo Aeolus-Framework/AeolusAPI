@@ -1,10 +1,13 @@
 import express from "express";
+import { authorize, Roles } from "../middleware/auth";
+
+import { chat as ChatCollection } from "../db/models/chat";
+import { userprofile as UserProfileCollection } from "../db/models/userprofile";
+import { isValidId } from "../util/validators/mongodbValidator";
+import { userIsAdmin } from "../util/routeHelpers";
+import flattenObject from "../util/object/flatten";
 
 export const socialRouter = express.Router();
-
-function respondWithReqUrl(req: any): string {
-    return `You have navigated to <a href="${req.originalUrl}">${req.originalUrl}</a>`;
-}
 
 /**
  * @openapi
@@ -21,32 +24,26 @@ function respondWithReqUrl(req: any): string {
  *                  type: string
  *              message:
  *                  type: string
- *      ChatInfo:
- *          description: General information about a chat
+ *      Chat:
+ *          description: Messages and general information about a chat
  *          type: object
  *          properties:
+ *              _id:
+ *                 type: string
  *              owner:
  *                  type: string
  *              name:
  *                  type: string
  *              closed:
  *                  type: boolean
- *              partipicants:
+ *              participants:
  *                  type: array
  *                  items:
  *                      type: string
- *      Chat:
- *          description: Messages and general information about a chat
- *          allOf:
- *              - $ref: "#/components/schemas/ChatInfo"
- *              - type: object
- *                properties:
- *                    id:
- *                       type: string
- *                    conversation:
- *                        type: array
- *                        items:
- *                           $ref: "#/components/schemas/Message"
+ *              conversation:
+ *                  type: array
+ *                  items:
+ *                     $ref: "#/components/schemas/Message"
  *      Userprofile:
  *          description: Contains information about a user
  *          type: object
@@ -88,8 +85,17 @@ function respondWithReqUrl(req: any): string {
  *                          items:
  *                              $ref: "#/components/schemas/Chat"
  */
-socialRouter.get("/chat", (req, res) => {
-    res.send(respondWithReqUrl(req));
+socialRouter.get("/chat", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const userId = req.user.uid;
+
+    try {
+        const chats = await ChatCollection.find({
+            $or: [{ owner: userId }, { participants: userId }]
+        }).exec();
+        return res.status(200).send(chats);
+    } catch (error) {
+        return res.status(500).send();
+    }
 });
 
 /**
@@ -99,12 +105,6 @@ socialRouter.get("/chat", (req, res) => {
  *      tags:
  *          - Social
  *      description: Create a new chat that belongs to the requester
- *      requestBody:
- *          description: Information about chat to create
- *          content:
- *              application/json:
- *                  schema:
- *                      $ref: "#/components/schemas/ChatInfo"
  *      responses:
  *          200:
  *              description: Ok
@@ -121,8 +121,16 @@ socialRouter.get("/chat", (req, res) => {
  *                      schema:
  *                          type: string
  */
-socialRouter.post("/chat", (req, res) => {
-    res.send(respondWithReqUrl(req));
+socialRouter.post("/chat", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const userId = req.user.uid;
+    const chatDocument = new ChatCollection({ owner: userId });
+
+    try {
+        const chat = await chatDocument.save();
+        return res.status(200).send(chat);
+    } catch (error) {
+        res.status(500).send();
+    }
 });
 
 /**
@@ -144,7 +152,7 @@ socialRouter.post("/chat", (req, res) => {
  *          content:
  *              application/json:
  *                  schema:
- *                      $ref: "#/components/schemas/ChatInfo"
+ *                      $ref: "#/components/schemas/Chat"
  *      responses:
  *          200:
  *              description: Ok
@@ -174,7 +182,7 @@ socialRouter.post("/chat", (req, res) => {
  *                          type: string
  */
 socialRouter.put("/chat/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+    res.status(501).send();
 });
 
 /**
@@ -224,7 +232,7 @@ socialRouter.put("/chat/:id", (req, res) => {
  *                          type: string
  */
 socialRouter.put("/chat/:id/:userToInvite", (req, res) => {
-    res.send(respondWithReqUrl(req));
+    res.status(501).send();
 });
 
 /**
@@ -274,7 +282,39 @@ socialRouter.put("/chat/:id/:userToInvite", (req, res) => {
  *                          type: string
  */
 socialRouter.delete("/chat/:id/:userToRemove", (req, res) => {
-    res.send(respondWithReqUrl(req));
+    res.status(501).send();
+});
+
+/**
+ * @openapi
+ * /social/user/:
+ *  get:
+ *      tags:
+ *          - Social
+ *      description: Get information about the requester&#39;s userprofile
+ *      responses:
+ *          200:
+ *              description: Ok
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          $ref: "#/components/schemas/Userprofile"
+ *          404:
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
+ */
+socialRouter.get("/user/", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const userId = req.user.uid;
+
+    let userprofile;
+    try {
+        userprofile = await UserProfileCollection.findById(userId).exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+    if (userprofile === null) return res.status(404).send();
+    else return res.status(200).send(userprofile);
 });
 
 /**
@@ -298,15 +338,28 @@ socialRouter.delete("/chat/:id/:userToRemove", (req, res) => {
  *                  application/json:
  *                      schema:
  *                          $ref: "#/components/schemas/Userprofile"
+ *          404:
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
  */
-socialRouter.get("/user/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+socialRouter.get("/user/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const userId = req.params.id;
+
+    let userprofile;
+    try {
+        userprofile = await UserProfileCollection.findById(userId).exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+    if (userprofile === null) return res.status(404).send();
+    else return res.status(200).send(userprofile);
 });
 
 /**
  * @openapi
  * /social/user/{id}:
- *  put:
+ *  patch:
  *      tags:
  *          - Social
  *      description: Update information about a user
@@ -330,7 +383,89 @@ socialRouter.get("/user/:id", (req, res) => {
  *                  text/plain:
  *                      schema:
  *                          type: string
+ *          400:
+ *              description: Bad request, see response body for more details.
+ *              content:
+ *                  text/plain:
+ *                      schema:
+ *                          type: string
+ *          404:
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
  */
-socialRouter.put("/user/:id", (req, res) => {
-    res.send(respondWithReqUrl(req));
+socialRouter.patch("/user/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const changes = req.body;
+    const userID = req.params.id;
+
+    if (!isValidId(userID)) return res.status(400).send(["Invalid household id"]);
+
+    let userprofileDoc;
+    try {
+        userprofileDoc = await UserProfileCollection.findById(userID).exec();
+    } catch (err) {
+        return res.status(500).send();
+    }
+
+    if (!userprofileDoc) {
+        return res.status(404).send();
+    } else if (!userIsAdmin(req.user) || req.user.uid === userprofileDoc._id) {
+        return res.status(403).send();
+    }
+
+    userprofileDoc.set(flattenObject(changes));
+
+    try {
+        await userprofileDoc.save();
+        return res.status(200).send();
+    } catch (error) {
+        if (error.name === "DocumentNotFoundError") return res.status(404).send();
+        if (error.name === "ValidationError") {
+            let errorMessages = [];
+            for (const err in error.errors) {
+                errorMessages.push(error.errors[err].message);
+            }
+
+            return res.status(400).send(errorMessages);
+        } else return res.status(500).send();
+    }
+});
+
+/**
+ * @openapi
+ * /social/user/{id}:
+ *  get:
+ *      tags:
+ *          - Social
+ *      description: Get information about a user
+ *      parameters:
+ *          - name: id
+ *            in: path
+ *            description: id of user
+ *            required: true
+ *            schema:
+ *              type: string
+ *      responses:
+ *          200:
+ *              description: Ok
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          $ref: "#/components/schemas/Userprofile"
+ *          404:
+ *              description: The household could not be found.
+ *          500:
+ *              description: Internal server error
+ */
+socialRouter.get("/user/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const userId = req.params.id;
+
+    let userprofile;
+    try {
+        userprofile = await UserProfileCollection.findById(userId).exec();
+    } catch (error) {
+        return res.status(500).send();
+    }
+    if (userprofile === null) return res.status(404).send();
+    else return res.status(200).send(userprofile);
 });

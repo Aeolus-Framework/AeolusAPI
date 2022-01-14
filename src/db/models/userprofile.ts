@@ -17,23 +17,26 @@ export enum LoginProvider {
 interface Userprofile {
     firstname: string;
     lastname: string;
+    role: string;
     email: string;
     enabled: boolean;
-    disabledUntil: Date;
+    disabledUntil?: Date;
     dashboard: DashboardCardType[];
     loginProvider: LoginProvider;
 }
 
 var userprofileSchema = new mongoose.Schema(
     {
-        firstname: String,
-        lastname: String,
-        enabled: Boolean,
+        firstname: { type: String, required: true, trim: true },
+        lastname: { type: String, required: true, trim: true },
+        role: { type: String, required: true },
+        email: { type: String, required: true, trim: true },
+        enabled: { type: Boolean, required: true },
         disabledUntil: Date,
-        dashboard: [Number],
-        loginProvider: String
+        dashboard: { type: [Number], required: true, default: [0, 1, 2, 3, 4] },
+        loginProvider: { type: String, required: true }
     },
-    { versionKey: true }
+    { versionKey: false }
 );
 
 export const userprofile = mongoose.model("userprofile", userprofileSchema);
