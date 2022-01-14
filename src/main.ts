@@ -7,6 +7,7 @@ import { dashboardRouter } from "./routes/dashboard";
 import { simulatorRouter } from "./routes/simulator";
 import { socialRouter } from "./routes/social";
 import swaggerUi from "swagger-ui-express";
+import { authenticateToken } from "./middleware/auth";
 
 import "./db/access/db";
 
@@ -27,8 +28,8 @@ app.use((err, req, res, next) => {
 
 app.get("/", (req, res) => res.redirect(302, "./docs/"));
 
-app.use("/simulator", simulatorRouter);
-app.use("/social", socialRouter);
+app.use("/simulator", authenticateToken, simulatorRouter);
+app.use("/social", authenticateToken, socialRouter);
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(require(swaggerFile)));
 
 app.listen(8080);

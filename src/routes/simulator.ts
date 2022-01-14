@@ -1,10 +1,10 @@
-import express from "express";
+import express, { type Request } from "express";
 import flattenObject from "../util/object/flatten";
 import { isValidId } from "../util/validators/mongodbValidator";
 import { objectIsEmpty } from "../util/validators/jsonValidator";
 import { isValidDate } from "../util/validators/dateValidator";
 
-import { householdExist, household as HouseholdCollection } from "../db/models/household";
+import { household as HouseholdCollection } from "../db/models/household";
 import { batteryHistory as BatteryHistoryCollection } from "../db/models/battery";
 import { production as ProductionHistoryCollection } from "../db/models/production";
 import { consumption as ConsumptionHistoryCollection } from "../db/models/consumption";
@@ -12,6 +12,7 @@ import { transmission as TransmissionHistoryCollection } from "../db/models/tran
 import { windspeed as WindspeedCollection } from "../db/models/windspeed";
 import { powerplant as PowerplantCollection } from "../db/models/powerplant";
 import { market as MarketCollection } from "../db/models/market";
+import { authorize, Roles } from "../middleware/auth";
 
 export const simulatorRouter = express.Router();
 
@@ -246,7 +247,7 @@ enum historyParameter {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.get("/grid/blackouts", async (req, res) => {
+simulatorRouter.get("/grid/blackouts", authorize(Roles.admin), async (req, res) => {
     const query = { blackout: true };
     const fields = "_id name owner";
 
@@ -272,7 +273,7 @@ simulatorRouter.get("/grid/blackouts", async (req, res) => {
  *          501:
  *              description: Not implemented
  */
-simulatorRouter.get("/grid/summary", (req, res) => {
+simulatorRouter.get("/grid/summary", authorize(Roles.admin), (req, res) => {
     res.status(501).send();
 });
 
@@ -314,7 +315,7 @@ simulatorRouter.get("/grid/summary", (req, res) => {
  *              description: Internal server error
  *
  */
-simulatorRouter.get("/households/u/:id", async (req, res) => {
+simulatorRouter.get("/households/u/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
     const userid = req.params.id;
     if (isValidId(userid) === false) return res.status(400).send();
 
@@ -337,7 +338,7 @@ simulatorRouter.get("/households/u/:id", async (req, res) => {
  *          - Simulator
  *      description: Create a new household with the requester as owner
  *      requestBody:
- *          description: Information about household to create
+ *          description: Information about household to create. <br/><br/> NOTE: Specifying `owner` will not have any effect.
  *          content:
  *              application/json:
  *                  schema:
@@ -367,11 +368,14 @@ simulatorRouter.get("/households/u/:id", async (req, res) => {
  *              description: Internal server error
  *
  */
-simulatorRouter.post("/household/", async (req, res) => {
+simulatorRouter.post("/household/", authorize(Roles.admin, Roles.user), async (req, res) => {
     const household = req.body;
     if (objectIsEmpty(household)) return res.status(400).send(["Empty request body, no household found"]);
 
     if (household.hasOwnProperty("_id")) delete household._id; // Prevent user to set document id
+    if (household.hasOwnProperty("sellLimit")) delete household.sellLimit; // Prevent user to set sell limit
+
+    household.owner = req.user.uid;
     const householdDocument = new HouseholdCollection(household);
 
     try {
@@ -426,7 +430,7 @@ simulatorRouter.post("/household/", async (req, res) => {
  *              description: Internal server error
  *
  */
-simulatorRouter.get("/household/:id", async (req, res) => {
+simulatorRouter.get("/household/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
     const householdId = req.params.id;
     if (isValidId(householdId) === false) return res.status(400).send();
 
@@ -437,9 +441,9 @@ simulatorRouter.get("/household/:id", async (req, res) => {
         console.log(error);
         return res.status(500).send();
     }
-
     if (household === null) return res.status(404).send();
-    else return res.status(200).send(household);
+    if (userIsAdminOrHouseholdOwner(req.user, household)) return res.status(200).send(household);
+    else return res.status(403).send();
 });
 
 /**
@@ -482,7 +486,7 @@ simulatorRouter.get("/household/:id", async (req, res) => {
  *
  *
  */
-simulatorRouter.patch("/household/:id", async (req, res) => {
+simulatorRouter.patch("/household/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
     const changes = req.body;
     const householdId = req.params.id;
 
@@ -492,11 +496,15 @@ simulatorRouter.patch("/household/:id", async (req, res) => {
     let householdDoc;
     try {
         householdDoc = await HouseholdCollection.findById(householdId).exec();
-        if (!householdDoc) return res.status(404).send();
     } catch (err) {
         return res.status(500).send();
     }
 
+    if (!householdDoc) {
+        return res.status(404).send();
+    } else if (!userIsAdminOrHouseholdOwner(req.user, householdDoc)) {
+        return res.status(403).send();
+    }
     householdDoc.set(flattenObject(changes));
 
     try {
@@ -543,13 +551,17 @@ simulatorRouter.patch("/household/:id", async (req, res) => {
  *
  *
  */
-simulatorRouter.delete("/household/:id", async (req, res) => {
+simulatorRouter.delete("/household/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
     const householdId = req.params.id;
 
     if (!isValidId(householdId)) return res.status(400).send();
 
     try {
-        const household = await HouseholdCollection.findById(householdId).remove().exec();
+        const query = {
+            _id: householdId,
+            ...(!userIsAdmin(req.user) && { owner: req.user.uid })
+        };
+        const household = await HouseholdCollection.findOne(query).remove().exec();
         if (household.deletedCount === 0) return res.status(404).send();
     } catch (err) {
         return res.status(500).send();
@@ -625,53 +637,55 @@ simulatorRouter.delete("/household/:id", async (req, res) => {
  *              description: Internal server error
  *
  */
-simulatorRouter.get("/household/:id/history/:collection/:from/:to?", async (req, res) => {
-    const householdId = req.params.id;
-    const collection: historyParameter = historyParameter[req.params.collection?.toLowerCase()];
-    const dateFrom = new Date(req.params.from);
-    const dateTo = req.params.to ? new Date(req.params.to) : new Date();
+simulatorRouter.get(
+    "/household/:id/history/:collection/:from/:to?",
+    authorize(Roles.admin, Roles.user),
+    async (req, res) => {
+        const householdId = req.params.id;
+        const collection: historyParameter = historyParameter[req.params.collection?.toLowerCase()];
+        const dateFrom = new Date(req.params.from);
+        const dateTo = req.params.to ? new Date(req.params.to) : new Date();
 
-    if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
-    if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
+        if (!isValidDate(dateFrom) || !isValidDate(dateTo)) return res.status(400).send(["Invalid date"]);
+        if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
 
-    const query = { timestamp: { $gte: dateFrom, $lte: dateTo }, household: householdId };
-    const fields = "-_id";
+        const query = { timestamp: { $gte: dateFrom, $lte: dateTo }, household: householdId };
+        const fields = "-_id";
 
-    let historyCollection;
-    switch (collection) {
-        case historyParameter.battery:
-            historyCollection = BatteryHistoryCollection;
-            break;
-        case historyParameter.consumption:
-            historyCollection = ConsumptionHistoryCollection;
-            break;
-        case historyParameter.production:
-            historyCollection = ProductionHistoryCollection;
-            break;
-        case historyParameter.transmission:
-            historyCollection = TransmissionHistoryCollection;
-            break;
-        default:
-            return res.status(400).send(["Invalid history parameter"]);
+        let historyCollection;
+        switch (collection) {
+            case historyParameter.battery:
+                historyCollection = BatteryHistoryCollection;
+                break;
+            case historyParameter.consumption:
+                historyCollection = ConsumptionHistoryCollection;
+                break;
+            case historyParameter.production:
+                historyCollection = ProductionHistoryCollection;
+                break;
+            case historyParameter.transmission:
+                historyCollection = TransmissionHistoryCollection;
+                break;
+            default:
+                return res.status(400).send(["Invalid history parameter"]);
+        }
+
+        let historicalData: Array<any>;
+        let household: boolean;
+        try {
+            [historicalData, household] = await Promise.all([
+                historyCollection.find(query).select(fields).exec(),
+                HouseholdCollection.findOne({ _id: householdId }).exec()
+            ]);
+        } catch (error) {
+            return res.status(500).send();
+        }
+
+        if (!household) return res.status(404).send();
+        if (!userIsAdminOrHouseholdOwner(req.user, household)) return res.status(403).send();
+        else return res.status(200).send(historicalData);
     }
-
-    let historicalData: Array<any>;
-    try {
-        historicalData = await historyCollection.find(query).select(fields).exec();
-    } catch (error) {
-        return res.status(500).send();
-    }
-
-    if (historicalData.length > 0) return res.status(200).send(historicalData);
-
-    try {
-        const householdExists = await householdExist(householdId);
-        if (householdExists) return res.status(200).send(historicalData);
-        else return res.status(404);
-    } catch (error) {
-        return res.status(500).send();
-    }
-});
+);
 
 /**
  * @openapi
@@ -716,7 +730,7 @@ simulatorRouter.get("/household/:id/history/:collection/:from/:to?", async (req,
  *              description: Internal server error
  *
  */
-simulatorRouter.get("/windspeed/:from/:to?", async (req, res) => {
+simulatorRouter.get("/windspeed/:from/:to?", authorize(Roles.admin, Roles.user), async (req, res) => {
     const dateFrom = new Date(req.params.from);
     const dateTo = req.params.to ? new Date(req.params.to) : new Date();
 
@@ -770,7 +784,7 @@ simulatorRouter.get("/windspeed/:from/:to?", async (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.get("/market/", async (req, res) => {
+simulatorRouter.get("/market/", authorize(Roles.admin, Roles.user), async (req, res) => {
     const marketName = req.query.name || "default";
     if (typeof marketName !== "string" || marketName.length === 0)
         return res.status(400).send(["Invalid marketname"]);
@@ -823,7 +837,7 @@ simulatorRouter.get("/market/", async (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.patch("/market/", async (req, res) => {
+simulatorRouter.patch("/market/", authorize(Roles.admin), async (req, res) => {
     const marketName = req.query.name || "default";
     const marketChanges = req.body;
 
@@ -892,7 +906,7 @@ simulatorRouter.patch("/market/", async (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.put("/market/limit/", async (req, res) => {
+simulatorRouter.put("/market/limit/", authorize(Roles.admin), async (req, res) => {
     const requestBody = req.body;
     const householdId = requestBody.householdId;
     const dateStart = new Date(requestBody?.start);
@@ -953,7 +967,7 @@ simulatorRouter.put("/market/limit/", async (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.delete("/market/limit/:id", async (req, res) => {
+simulatorRouter.delete("/market/limit/:id", authorize(Roles.admin), async (req, res) => {
     const householdId = req.params.id;
     if (!isValidId(householdId)) return res.status(400).send(["Invalid household id"]);
 
@@ -1002,7 +1016,7 @@ simulatorRouter.delete("/market/limit/:id", async (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.get("/powerplant/status", async (req, res) => {
+simulatorRouter.get("/powerplant/status", authorize(Roles.admin), async (req, res) => {
     const powerplantName = req.query.name || "default";
 
     if (typeof powerplantName !== "string" || powerplantName.length === 0)
@@ -1050,7 +1064,7 @@ simulatorRouter.get("/powerplant/status", async (req, res) => {
  *          500:
  *              description: Internal server error
  */
-simulatorRouter.put("/powerplant/status", async (req, res) => {
+simulatorRouter.put("/powerplant/status", authorize(Roles.admin), async (req, res) => {
     const powerplantName = req.query.name || "default";
     const powerplantStatus = req.body;
 
@@ -1074,3 +1088,18 @@ simulatorRouter.put("/powerplant/status", async (req, res) => {
         } else return res.status(500).send();
     }
 });
+
+/////////////////////////
+//    Helper methods   //
+/////////////////////////
+function userIsAdminOrHouseholdOwner(user: Request["user"], household: any): boolean {
+    return userIsAdmin(user) || userIsHouseholdOwner(user, household);
+}
+
+function userIsAdmin(user: Request["user"]): boolean {
+    return user?.role === Roles.admin;
+}
+
+function userIsHouseholdOwner(user: Request["user"], household: any): boolean {
+    return user?.uid === household?.owner;
+}
