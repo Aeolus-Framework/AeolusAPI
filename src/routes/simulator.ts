@@ -1,10 +1,10 @@
-import express from "express";
+import express, { type Request } from "express";
 import flattenObject from "../util/object/flatten";
 import { isValidId } from "../util/validators/mongodbValidator";
 import { objectIsEmpty } from "../util/validators/jsonValidator";
 import { isValidDate } from "../util/validators/dateValidator";
 
-import { householdExist, household as HouseholdCollection } from "../db/models/household";
+import { household as HouseholdCollection } from "../db/models/household";
 import { batteryHistory as BatteryHistoryCollection } from "../db/models/battery";
 import { production as ProductionHistoryCollection } from "../db/models/production";
 import { consumption as ConsumptionHistoryCollection } from "../db/models/consumption";
@@ -338,7 +338,7 @@ simulatorRouter.get("/households/u/:id", authorize(Roles.admin, Roles.user), asy
  *          - Simulator
  *      description: Create a new household with the requester as owner
  *      requestBody:
- *          description: Information about household to create
+ *          description: Information about household to create. <br/><br/> NOTE: Specifying `owner` will not have any effect.
  *          content:
  *              application/json:
  *                  schema:
@@ -373,6 +373,9 @@ simulatorRouter.post("/household/", authorize(Roles.admin, Roles.user), async (r
     if (objectIsEmpty(household)) return res.status(400).send(["Empty request body, no household found"]);
 
     if (household.hasOwnProperty("_id")) delete household._id; // Prevent user to set document id
+    if (household.hasOwnProperty("sellLimit")) delete household.sellLimit; // Prevent user to set sell limit
+
+    household.owner = req.user.uid;
     const householdDocument = new HouseholdCollection(household);
 
     try {
@@ -438,9 +441,9 @@ simulatorRouter.get("/household/:id", authorize(Roles.admin, Roles.user), async 
         console.log(error);
         return res.status(500).send();
     }
-
     if (household === null) return res.status(404).send();
-    else return res.status(200).send(household);
+    if (userIsAdminOrHouseholdOwner(req.user, household)) return res.status(200).send(household);
+    else return res.status(403).send();
 });
 
 /**
@@ -493,11 +496,15 @@ simulatorRouter.patch("/household/:id", authorize(Roles.admin, Roles.user), asyn
     let householdDoc;
     try {
         householdDoc = await HouseholdCollection.findById(householdId).exec();
-        if (!householdDoc) return res.status(404).send();
     } catch (err) {
         return res.status(500).send();
     }
 
+    if (!householdDoc) {
+        return res.status(404).send();
+    } else if (!userIsAdminOrHouseholdOwner(req.user, householdDoc)) {
+        return res.status(403).send();
+    }
     householdDoc.set(flattenObject(changes));
 
     try {
@@ -550,7 +557,11 @@ simulatorRouter.delete("/household/:id", authorize(Roles.admin, Roles.user), asy
     if (!isValidId(householdId)) return res.status(400).send();
 
     try {
-        const household = await HouseholdCollection.findById(householdId).remove().exec();
+        const query = {
+            _id: householdId,
+            ...(!userIsAdmin(req.user) && { owner: req.user.uid })
+        };
+        const household = await HouseholdCollection.findOne(query).remove().exec();
         if (household.deletedCount === 0) return res.status(404).send();
     } catch (err) {
         return res.status(500).send();
@@ -660,21 +671,19 @@ simulatorRouter.get(
         }
 
         let historicalData: Array<any>;
+        let household: boolean;
         try {
-            historicalData = await historyCollection.find(query).select(fields).exec();
+            [historicalData, household] = await Promise.all([
+                historyCollection.find(query).select(fields).exec(),
+                HouseholdCollection.findOne({ _id: householdId }).exec()
+            ]);
         } catch (error) {
             return res.status(500).send();
         }
 
-        if (historicalData.length > 0) return res.status(200).send(historicalData);
-
-        try {
-            const householdExists = await householdExist(householdId);
-            if (householdExists) return res.status(200).send(historicalData);
-            else return res.status(404);
-        } catch (error) {
-            return res.status(500).send();
-        }
+        if (!household) return res.status(404).send();
+        if (!userIsAdminOrHouseholdOwner(req.user, household)) return res.status(403).send();
+        else return res.status(200).send(historicalData);
     }
 );
 
@@ -1079,3 +1088,18 @@ simulatorRouter.put("/powerplant/status", authorize(Roles.admin), async (req, re
         } else return res.status(500).send();
     }
 });
+
+/////////////////////////
+//    Helper methods   //
+/////////////////////////
+function userIsAdminOrHouseholdOwner(user: Request["user"], household: any): boolean {
+    return userIsAdmin(user) || userIsHouseholdOwner(user, household);
+}
+
+function userIsAdmin(user: Request["user"]): boolean {
+    return user?.role === Roles.admin;
+}
+
+function userIsHouseholdOwner(user: Request["user"], household: any): boolean {
+    return user?.uid === household?.owner;
+}
