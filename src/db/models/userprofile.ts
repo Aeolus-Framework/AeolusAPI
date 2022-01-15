@@ -29,6 +29,7 @@ var userprofileSchema = new mongoose.Schema(
     {
         firstname: { type: String, required: true, trim: true },
         lastname: { type: String, required: true, trim: true },
+        profilePicture: { type: String, required: true, trim: true },
         role: { type: String, required: true },
         email: { type: String, required: true, trim: true },
         enabled: { type: Boolean, required: true },

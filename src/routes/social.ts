@@ -52,6 +52,8 @@ export const socialRouter = express.Router();
  *                  type: string
  *              lastname:
  *                  type: string
+ *              profilePicture:
+ *                  type: string
  *              email:
  *                  type: string
  *              enabled:
