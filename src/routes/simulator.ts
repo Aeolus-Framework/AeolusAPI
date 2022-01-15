@@ -245,12 +245,23 @@ enum historyParameter {
  *                                      type: string
  *                                  name:
  *                                      type: string
+ *                                  location:
+ *                                      type: object
+ *                                      properties:
+ *                                          latitude:
+ *                                              type: number
+ *                                              minimum: -90
+ *                                              maximum: 90
+ *                                          longitude:
+ *                                              type: number
+ *                                              minimum: -180
+ *                                              maximum: 180
  *          500:
  *              description: Internal server error
  */
 simulatorRouter.get("/grid/blackouts", authorize(Roles.admin), async (req, res) => {
     const query = { blackout: true };
-    const fields = "_id name owner";
+    const fields = "_id name owner location";
 
     let blackouts;
     try {
@@ -261,21 +272,6 @@ simulatorRouter.get("/grid/blackouts", authorize(Roles.admin), async (req, res) 
     }
 
     return res.status(200).send(blackouts);
-});
-
-/**
- * @openapi
- * /simulator/grid/summary:
- *  get:
- *      tags:
- *          - Simulator
- *      description: Work in progress.
- *      responses:
- *          501:
- *              description: Not implemented
- */
-simulatorRouter.get("/grid/summary", authorize(Roles.admin), (req, res) => {
-    res.status(501).send();
 });
 
 /**
