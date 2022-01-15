@@ -1196,6 +1196,14 @@ simulatorRouter.get("/powerplant/status", authorize(Roles.admin), async (req, re
  *      tags:
  *          - Simulator
  *      description: Set status of powerplant.
+ *      parameters:
+ *          - name: name
+ *            in: query
+ *            description: Name of powerplant
+ *            required: false
+ *            schema:
+ *                type: string
+ *                default: default
  *      requestBody:
  *          description: status to set
  *          content:
@@ -1230,7 +1238,10 @@ simulatorRouter.put("/powerplant/status", authorize(Roles.admin), async (req, re
         return res.status(400).send(["Invalid powerplantname"]);
 
     try {
-        await PowerplantCollection.findOneAndUpdate({ name: powerplantName }, { powerplantStatus }).exec();
+        await PowerplantCollection.findOneAndUpdate(
+            { name: powerplantName },
+            { active: powerplantStatus.active }
+        ).exec();
         return res.status(200).send();
     } catch (error) {
         if (error.name === "DocumentNotFoundError") return res.status(404).send();
