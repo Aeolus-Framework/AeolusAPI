@@ -30,6 +30,7 @@ export const socialRouter = express.Router();
  *          properties:
  *              _id:
  *                 type: string
+ *                 readOnly: true
  *              owner:
  *                  type: string
  *              name:
@@ -48,6 +49,9 @@ export const socialRouter = express.Router();
  *          description: Contains information about a user
  *          type: object
  *          properties:
+ *              _id:
+ *                  type: string
+ *                  readOnly: true
  *              firstname:
  *                  type: string
  *              lastname:
@@ -58,16 +62,18 @@ export const socialRouter = express.Router();
  *                  type: string
  *              enabled:
  *                  type: boolean
+ *                  description: If false, the user will unable to sign in.
  *              disabledUntil:
  *                  type: string
  *                  format: date-time
+ *                  description: Date of which the user will be unable to sign in.
  *              dashboard:
  *                  type: array
  *                  items:
  *                      type: number
  *              loginProvider:
  *                  type: string
- *
+ *                  readOnly: true
  */
 
 /**
@@ -401,6 +407,7 @@ socialRouter.patch("/user/:id", authorize(Roles.admin, Roles.user), async (req, 
     const userID = req.params.id;
 
     if (!isValidId(userID)) return res.status(400).send(["Invalid household id"]);
+    if (changes?.hasOwnProperty("loginProvider")) delete changes.loginProvider;
 
     let userprofileDoc;
     try {
@@ -470,4 +477,72 @@ socialRouter.get("/user/:id", authorize(Roles.admin, Roles.user), async (req, re
     }
     if (userprofile === null) return res.status(404).send();
     else return res.status(200).send(userprofile);
+});
+
+/**
+ * @openapi
+ * /social/user/{id}:
+ *  delete:
+ *      tags:
+ *          - Social
+ *      description: Remove a users profile
+ *      parameters:
+ *          - name: id
+ *            in: path
+ *            description: id of user to remove
+ *            required: true
+ *            schema:
+ *              type: string
+ *      responses:
+ *          204:
+ *              description: Household was successfully deleted.
+ *          403:
+ *              description: The requester does not have sufficient permissions.
+ *          404:
+ *              description: The user could not be found.
+ *          500:
+ *              description: Internal server error
+ */
+socialRouter.delete("/user/:id", authorize(Roles.admin, Roles.user), async (req, res) => {
+    const userId = req.params.id;
+    const requesterUserId = req.user.uid;
+
+    if (!userIsAdmin(req.user) && requesterUserId !== userId) return res.status(403).send();
+
+    try {
+        const userprofile = await UserProfileCollection.findById(userId).remove().exec();
+        if (userprofile.deletedCount === 0) return res.status(404).send();
+    } catch (error) {
+        return res.status(500).send();
+    }
+    return res.status(204).send();
+});
+
+/**
+ * @openapi
+ * /social/users/:
+ *  get:
+ *      tags:
+ *          - Social
+ *      description: Get all users.
+ *      responses:
+ *          200:
+ *              description: A list of all users. <br/><br/> If no users was found, the response will be an empty array.
+ *              content:
+ *                  application/json:
+ *                      schema:
+ *                          type: array
+ *                          items:
+ *                              $ref: "#/components/schemas/Userprofile"
+ *          500:
+ *              description: Internal server error
+ *
+ */
+socialRouter.get("/users/", authorize(Roles.admin), async (req, res) => {
+    try {
+        const users = await UserProfileCollection.find().exec();
+        return res.status(200).send(users);
+    } catch (error) {
+        return res.status(500).send();
+    }
 });
