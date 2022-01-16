@@ -6,7 +6,7 @@ export function userIsAdminOrHouseholdOwner(user: Request["user"], household: an
 }
 
 export function userIsAdmin(user: Request["user"]): boolean {
-    return user?.role === Roles.admin;
+    return user?.role.toLowerCase() === Roles.admin.toLowerCase();
 }
 
 export function userIsHouseholdOwner(user: Request["user"], household: any): boolean {
