@@ -73,8 +73,12 @@ enum historyParameter {
  *                          minimum: 0
  *              sellRatioOverProduction:
  *                  type: number
+ *                  maximum: 1
+ *                  minimum: 0
  *              buyRatioUnderProduction:
  *                  type: number
+ *                  maximum: 1
+ *                  minimum: 0
  *              windTurbines:
  *                  type: object
  *                  required: ["active", "maximumProduction", "cutinWindspeed", "cutoutWindspeed"]
@@ -84,6 +88,7 @@ enum historyParameter {
  *                          minimum: 0
  *                      maximumProduction:
  *                          type: number
+ *                          minimum: 0
  *                      cutinWindspeed:
  *                          type: number
  *                          minimum: 0
@@ -180,9 +185,11 @@ enum historyParameter {
  *              demand:
  *                  type: number
  *                  description: Market demand in kilowatthours (kWh).
+ *                  minimum: 0
  *              supply:
  *                  type: number
  *                  description: Market supply in kilowatthours (kWh).
+ *                  minimum: 0
  *              basePrice:
  *                  type: number
  *                  description: The price if demand == supply, currency sek
@@ -198,6 +205,7 @@ enum historyParameter {
  *                      value:
  *                          type: number
  *                          example: 2.31
+ *                          minimum: 0
  *                      currency:
  *                          type: string
  *                          example: sek
@@ -350,8 +358,6 @@ simulatorRouter.get("/households/u/:id", authorize(Roles.admin, Roles.user), asy
  *                                        _id:
  *                                            type: string
  *                                  - $ref: "#/components/schemas/Household"
- *          403:
- *              description: The requester does not have sufficient permissions.
  *          500:
  *              description: Internal server error
  *
