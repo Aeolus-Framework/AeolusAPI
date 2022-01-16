@@ -32,6 +32,9 @@ enum historyParameter {
  *          type: object
  *          required: ["owner", "name", "area", "location", "baseConsumption", "battery", "sellRatioOverProduction", "buyRatioUnderProduction", "windTurbines", "consumptionSpike"]
  *          properties:
+ *              _id:
+ *                  type: string
+ *                  readOnly: true
  *              owner:
  *                  type: string
  *              name:
@@ -128,6 +131,7 @@ enum historyParameter {
  *                  type: string
  *              energy:
  *                  type: number
+ *                  description: Energy stored in battery. Unit Joule (J)
  *                  minimum: 0
  *
  *
@@ -141,6 +145,7 @@ enum historyParameter {
  *                  type: string
  *              consumption:
  *                  type: number
+ *                  description: Household consumption. Unit watt (W)
  *                  minimum: 0
  *
  *      Production:
@@ -153,6 +158,7 @@ enum historyParameter {
  *                  type: string
  *              production:
  *                  type: number
+ *                  description: Household production. Unit watt (W)
  *                  minimum: 0
  *
  *      Transmission:
@@ -165,6 +171,7 @@ enum historyParameter {
  *                  type: string
  *              amount:
  *                  type: number
+ *                  description: Household consumption. Unit kilowatthour (kWh)
  *                  minimum: 0
  *
  *      Windspeed:
@@ -175,6 +182,7 @@ enum historyParameter {
  *                  format: date-time
  *              windspeed:
  *                  type: number
+ *                  description: Unit meters per second (m/s)
  *                  minimum: 0
  *      Market:
  *          type: object
@@ -350,14 +358,7 @@ simulatorRouter.get("/households/u/:id", authorize(Roles.admin, Roles.user), asy
  *                      schema:
  *                          type: array
  *                          items:
- *                              type: object
- *                              allOf:
- *                                  - type: object
- *                                    required: ["_id"]
- *                                    properties:
- *                                        _id:
- *                                            type: string
- *                                  - $ref: "#/components/schemas/Household"
+ *                              $ref: "#/components/schemas/Household"
  *          500:
  *              description: Internal server error
  *
@@ -392,13 +393,7 @@ simulatorRouter.get("/household/", authorize(Roles.user), async (req, res) => {
  *              content:
  *                  application/json:
  *                      schema:
- *                          allOf:
- *                              - type: object
- *                                required: ["_id"]
- *                                properties:
- *                                    _id:
- *                                        type: string
- *                              - $ref: "#/components/schemas/Household"
+ *                          $ref: "#/components/schemas/Household"
  *          400:
  *              description: Bad request, see response body for more details. <br/><br/>The response contains a list of errors.
  *              content:
@@ -456,13 +451,7 @@ simulatorRouter.post("/household/", authorize(Roles.admin, Roles.user), async (r
  *              content:
  *                  application/json:
  *                      schema:
- *                          allOf:
- *                              - type: object
- *                                required: ["_id"]
- *                                properties:
- *                                    _id:
- *                                        type: string
- *                              - $ref: "#/components/schemas/Household"
+ *                          $ref: "#/components/schemas/Household"
  *          400:
  *              description: Invalid household id
  *          403:
