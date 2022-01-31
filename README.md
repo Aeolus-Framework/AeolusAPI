@@ -6,57 +6,37 @@ An RESTful API modeling electricity price, production, and consumption based on 
 
 # Usage
 
-First, install all dependencies
+First, install all dependencies with
 
 ```sh
 npm install
 ```
 
-then you will be able to proceed with one of the actions below.
-
-## Build
-
-Then you will be able to build the project with:
+or
 
 ```sh
-npm run build
+npm ci
 ```
 
-## Build and run
+then you will be able to proceed with one of the npm script in [NPM scripts](#npm-scripts) section below.
 
-Then you will be able to build the project and then running it with:
+## NPM scripts
 
-```sh
-npm run build && npm start
-```
+| Command                      | Use case                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `npm run build`              | Build the project                                                         |
+| `npm run build && npm start` | Build and run the project                                                 |
+| `npm test`                   | Run unit tests                                                            |
+| `npm run dev`                | Rebuild and restart the application when a file in the project is changed |
+| `npm run docgen`             | Build the project and generate openapi (swagger) documentation            |
 
-## Run unit tests
+## Authorization
 
-To run all unit tests defined in `/test/`, use:
-
-```sh
-npm test
-```
-
-## Develop
-
-To rebuild and start the applicaiton when a file in the project is saved, use:
-
-```sh
-npm run dev
-```
-
-## Generate API documentation
-
-To build the project and then generate openapi (swagger) documentation, use:
-
-```sh
-npm run docgen
-```
+In order to access the API, you will need to have a valid JWT token in the [authorization header](https://datatracker.ietf.org/doc/html/rfc6750#section-2.1).
 
 # Enviroment variables avaliable
 
-| name                              | description                                                 | default                |
+| Name                              | Description                                                 | Default                |
 | --------------------------------- | ----------------------------------------------------------- | ---------------------- |
 | `MONGODB_HOST`                    | Host with a mongo instance running, may include port number |
 | `MONGODB_DATABASE`                | Database to use                                             |
